@@ -47,6 +47,7 @@ class RouteServiceProvider extends ServiceProvider
                 ->namespace($this->namespace)
                 ->group(base_path('routes/web.php'));
         });
+        $this->mapTenantRoutes();
     }
 
     /**
@@ -59,5 +60,12 @@ class RouteServiceProvider extends ServiceProvider
         RateLimiter::for('api', function (Request $request) {
             return Limit::perMinute(60)->by(optional($request->user())->id ?: $request->ip());
         });
+    }
+    protected function mapTenantRoutes()
+    {
+        Route::middleware(['web', 'auth', 'domain'])
+            ->namespace("$this->namespace\Tenant")
+            ->name('tenant.')
+            ->group(base_path('routes/tenant.php'));
     }
 }
