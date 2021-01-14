@@ -31,7 +31,6 @@ class TenancyProvider extends ServiceProvider
     {
         if ($this->app->runningInConsole()){
             $host = $this->app['request']->getHost();
-            dd($host);
             Tenant::whereDomain($host)->get();
         }
     }
