@@ -14,6 +14,15 @@ class Tenant extends Model
     {
         return $this->hasMany(User::class);
     }
+    public function product()
+    {
+        return $this->hasMany(Product::class);
+    }
+    public function category()
+    {
+        return $this->hasMany(Category::class);
+    }
+
     public function route($name, $parameters = []) {
         return 'https://' . $this->domain . app('url')->route($name, $parameters, false);
     }
