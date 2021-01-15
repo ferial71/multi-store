@@ -16,11 +16,11 @@ class TenantSeeder extends Seeder
     {
         \App\Models\Tenant::create([
             'name' =>'store-one',
-            'domain' =>'store-one',
+            'domain' =>'store-one.localhost',
         ]);
         \App\Models\Tenant::create([
             'name' =>'store-two',
-            'domain' =>'store-one',
+            'domain' =>'store-two.localhost',
         ]);
     }
 }

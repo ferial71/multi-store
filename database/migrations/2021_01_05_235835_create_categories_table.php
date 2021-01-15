@@ -19,7 +19,6 @@ class CreateCategoriesTable extends Migration
             $table->string('name');
             $table->string('slug')->unique();
             $table->foreignIdFor(Tenant::class);
-            $table->foreignIdFor(Tenant::class);
             $table->timestamps();
         });
     }
