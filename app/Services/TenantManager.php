@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Tenant;
+use PhpParser\Node\Scalar\String_;
 
 class TenantManager {
     /*
@@ -19,7 +20,14 @@ class TenantManager {
         return $this->tenant;
     }
 
-    public function loadTenant($identifier): bool {
-        // Identify the tenant here
+    public function loadTenant($identifier, $subdomain){
+        $tenant = Tenant::query()->where($subdomain ? 'subdomain' : 'domain', '=', $identifier)->first();
+
+        if ($tenant) {
+            $this->setTenant($tenant);
+            return true;
+        }
+
+        return false;
     }
 }
