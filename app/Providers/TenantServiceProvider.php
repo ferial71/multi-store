@@ -3,9 +3,10 @@
 namespace App\Providers;
 
 use App\Models\Tenant;
+use App\Services\TenantManager;
 use Illuminate\Support\ServiceProvider;
 
-class TenancyProvider extends ServiceProvider
+class TenantServiceProvider extends ServiceProvider
 {
     /**
      * Register services.
@@ -14,7 +15,12 @@ class TenancyProvider extends ServiceProvider
      */
     public function register()
     {
-        //
+        $manager = new TenantManager;
+
+        $this->app->instance(TenantManager::class, $manager);
+        $this->app->bind(Tenant::class, function () use ($manager) {
+            return $manager->getTenant();
+        });
     }
 
     /**
