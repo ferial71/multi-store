@@ -14,4 +14,7 @@ class Tenant extends Model
     {
         return $this->hasMany(User::class);
     }
+    public function route($name, $parameters = []) {
+        return 'https://' . $this->domain . app('url')->route($name, $parameters, false);
+    }
 }
