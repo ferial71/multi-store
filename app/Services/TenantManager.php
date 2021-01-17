@@ -30,4 +30,13 @@ class TenantManager {
 
         return false;
     }
+//    public static function unique($table, $column = 'NULL')
+//    {
+//        return (new Rules\Unique($table, $column))->where('tenant_id', $this->getTenant()->id);
+//    }
+//
+//    public static function exists($table, $column = 'NULL')
+//    {
+//        return (new Rules\Exists($table, $column))->where('tenant_id', $this->getTenant()->id);
+//    }
 }
