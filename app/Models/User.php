@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Scopes\TenantOwnedScope;
+use App\Traits\OwnedByTenant;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
@@ -17,6 +19,8 @@ class User extends Authenticatable
     use HasProfilePhoto;
     use Notifiable;
     use TwoFactorAuthenticatable;
+    use OwnedByTenant;
+
 
     /**
      * The attributes that are mass assignable.
@@ -58,4 +62,22 @@ class User extends Authenticatable
     protected $appends = [
         'profile_photo_url',
     ];
+    public function tenant()
+    {
+        return $this->belongsTo(Tenant::class);
+    }
+
+    protected static function booted()
+    {
+        static::addGlobalScope(new TenantOwnedScope);
+    }
+//    public function setTenant($tenant_id)
+//    {
+//        $this->tenant_id =$tenant_id;
+//    }
+    public function order()
+    {
+        return $this->hasMany(Order::class);
+    }
+
 }
