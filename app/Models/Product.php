@@ -2,21 +2,19 @@
 
 namespace App\Models;
 
+use App\Concerns\OwnedByTenant;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class Product extends Model
 {
     use HasFactory;
+    use OwnedByTenant;
 
     protected $guarded =[
 
     ];
 
-    public function tenant()
-    {
-        return $this->belongsTo(Tenant::class);
-    }
 
     public function categories()
     {
