@@ -21,6 +21,7 @@ class TenantServiceProvider extends ServiceProvider
         $this->app->bind(Tenant::class, function () use ($manager) {
             return $manager->getTenant();
         });
+//        dd($manager);
     }
 
     /**
@@ -30,7 +31,7 @@ class TenantServiceProvider extends ServiceProvider
      */
     public function boot()
     {
-        $this->configureRequests();
+//        $this->configureRequests();
     }
 
     public function configureRequests()
