@@ -2,7 +2,8 @@
 
 namespace App\Models;
 
-use App\Concerns\OwnedByTenant;
+
+use App\Traits\OwnedByTenant;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
