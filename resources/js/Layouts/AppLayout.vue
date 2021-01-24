@@ -11,7 +11,7 @@
                             <!-- Logo -->
                             <div class="flex-shrink-0 flex items-center">
                                 <inertia-link :href="route('dashboard')">
-                                    <jet-application-mark class="block h-9 w-auto" />
+                                    <jet-application-mark class="block h-20 w-20" />
                                 </inertia-link>
                             </div>
 
@@ -20,7 +20,7 @@
                                 <jet-nav-link :href="route('dashboard')" :active="route().current('dashboard')">
                                     Dashboard
                                 </jet-nav-link>
-                                <jet-nav-link :href="route('products')" :active="route().current('products')">
+                                <jet-nav-link :href="route('products.index')" :active="route().current('products.index')">
                                     Products
                                 </jet-nav-link>
 

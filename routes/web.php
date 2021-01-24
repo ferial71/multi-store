@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\ProductController;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
@@ -40,10 +41,17 @@ Route::get('/', function () {
 Route::middleware(['auth:sanctum', 'verified'])->get('/landing', function () {
     return Inertia::render('Landing');
 })->name('landing');
+Route::middleware(['auth:sanctum', 'verified'])->get('/cart', function () {
+    return Inertia::render('Cart');
+})->name('cart');
 
+//
+//Route::middleware(['auth:sanctum', 'verified'])->get('/products', function () {
+//    return Inertia::render('Products');
+//})->name('products');
 
-Route::middleware(['auth:sanctum', 'verified'])->get('/products', function () {
-    return Inertia::render('Products');
-})->name('products');
+Route::middleware(['auth:sanctum', 'verified'])->get('/products', [ProductController::class, 'index'])->name('products.index');
+Route::middleware(['auth:sanctum', 'verified'])->get('/products/{id}', [\App\Http\Controllers\ProductController::class, 'show'])->name('products.show');
+
 
 

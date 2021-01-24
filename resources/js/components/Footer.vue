@@ -1,5 +1,5 @@
 <template>
-    <footer class="relative bg-gray-300 pt-8 pb-6">
+    <footer class="relative bg-gray-300 pt-8 pb-6 mt-20">
         <div
             class="bottom-auto top-0 left-0 right-0 w-full absolute pointer-events-none overflow-hidden -mt-20"
             style="height: 80px; transform: translateZ(0px);"
@@ -132,14 +132,6 @@
                 class="flex flex-wrap items-center md:justify-between justify-center"
             >
                 <div class="w-full md:w-4/12 px-4 mx-auto text-center">
-                    <div class="text-sm text-gray-600 font-semibold py-1">
-                        Copyright © Tailwind Starter Kit by
-                        <a
-                            href="https://www.creative-tim.com"
-                            class="text-gray-600 hover:text-gray-900"
-                        >Creative Tim</a
-                        >.
-                    </div>
                 </div>
             </div>
         </div>
