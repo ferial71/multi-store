@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\Category;
 use App\Models\Tenant;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
@@ -19,6 +20,7 @@ class CreateCategoriesTable extends Migration
             $table->string('name');
             $table->string('slug')->unique();
             $table->foreignIdFor(Tenant::class);
+            $table->foreignIdFor(Category::class)->nullable();
             $table->timestamps();
         });
     }
