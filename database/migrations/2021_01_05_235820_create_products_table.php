@@ -18,8 +18,15 @@ class CreateProductsTable extends Migration
             $table->id();
             $table->string('name');
             $table->string('slug')->unique();
+            $table->string('sku')->unique();
             $table->text("description");
             $table->integer("price")->default(0);
+            $table->integer("weight")->default(0)->nullable();
+            $table->integer("stock")->default(0);
+            $table->string("location")->nullable();
+            $table->boolean("status")->default(1);
+            $table->string("image")->default("storage/iphone-12-blue-select-2020.png");
+            $table->boolean('featured')->default(false);
             $table->foreignIdFor(Tenant::class);
             $table->timestamps();
         });
