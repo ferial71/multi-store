@@ -33,7 +33,7 @@ class CategoryFactory extends Factory
         return [
             'name' => $name,
             'slug' => Str::slug($name),
-            'tenant_id'=> 1,
+            'tenant_id'=> $this->faker->numberBetween(1,2),
         ];
     }
 }
