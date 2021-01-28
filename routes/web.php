@@ -41,9 +41,9 @@ Route::get('/', function () {
 Route::middleware(['auth:sanctum', 'verified'])->get('/landing', function () {
     return Inertia::render('Landing');
 })->name('landing');
-Route::middleware(['auth:sanctum', 'verified'])->get('/cart', function () {
-    return Inertia::render('Cart');
-})->name('cart');
+//Route::middleware(['auth:sanctum', 'verified'])->get('/cart', function () {
+//    return Inertia::render('Cart');
+//})->name('cart');
 
 //
 //Route::middleware(['auth:sanctum', 'verified'])->get('/products', function () {
@@ -52,6 +52,13 @@ Route::middleware(['auth:sanctum', 'verified'])->get('/cart', function () {
 
 Route::middleware(['auth:sanctum', 'verified'])->get('/products', [ProductController::class, 'index'])->name('products.index');
 Route::middleware(['auth:sanctum', 'verified'])->get('/products/{id}', [\App\Http\Controllers\ProductController::class, 'show'])->name('products.show');
+Route::middleware(['auth:sanctum', 'verified'])->post('/cart/{id}', [\App\Http\Controllers\CartController::class, 'store'])->name('cart.store');
+Route::middleware(['auth:sanctum', 'verified'])->get('/cart', [\App\Http\Controllers\CartController::class, 'index'])->name('cart.index');
+Route::middleware(['auth:sanctum', 'verified'])->post('/cart/remove/{id}', [\App\Http\Controllers\CartController::class, 'remove'])->name('cart.remove');
+Route::middleware(['auth:sanctum', 'verified'])->post('/cart/removeall/{id}', [\App\Http\Controllers\CartController::class, 'removeAll'])->name('cart.removeall');
+Route::middleware(['auth:sanctum', 'verified'])->post('/cart/savelater/{id}', [\App\Http\Controllers\CartController::class, 'saveLater'])->name('cart.savelater');
+
+
 
 
 
