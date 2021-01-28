@@ -2,7 +2,12 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Resources\ProductResource;
+use App\Models\Product;
+use App\Services\CartManager;
+use Gloudemans\Shoppingcart\Facades\Cart;
 use Illuminate\Http\Request;
+use function GuzzleHttp\Psr7\_caseless_remove;
 
 class CartController extends Controller
 {
@@ -13,7 +18,13 @@ class CartController extends Controller
      */
     public function index()
     {
-        //
+
+        return inertia('Cart', [
+            'cartCount'=> Cart::count(),
+            'cartContent' => Cart::content(),
+            'cartTotal' =>  Cart::total(),
+            'cartLater' => Cart::instance('saveForLater')->content(),
+        ]);
     }
 
     /**
@@ -30,22 +41,67 @@ class CartController extends Controller
      * Store a newly created resource in storage.
      *
      * @param  \Illuminate\Http\Request  $request
-     * @return \Illuminate\Http\Response
+     * @return \Illuminate\Http\RedirectResponse
      */
-    public function store(Request $request)
+    public function store($id)
     {
-        //
+
+        $product = Product::findOrFail($id);
+
+        Cart::add($id, $product->name, 1, $product->price)
+            ->associate(Product::class);
+        return redirect()->route('cart.index')->with('success_message', 'Item was added to cart');
+    }
+    public function saveLater($id)
+    {
+
+        $item=  Cart::get($id);
+
+        Cart::remove($id);
+
+        Cart::instance('saveForLater')->add($id, $item->name, $item->qty, $item->price)
+            ->associate(Product::class);
+        return redirect()->route('cart.index')->with('success_message', 'Item was added to cart');
+    }
+
+    public function remove($id)
+    {
+
+        $qty =Cart::get($id)->qty;
+        if ($qty > 0) {
+            Cart::update($id,['qty' => $qty -1 ]);
+        }else{
+            Cart::remove($id);
+        }
+
+
+        return redirect()->back();
+    }
+
+    public function removeAll($id)
+    {
+
+        dd(Cart::content()->where($id)->row);
+        if ( is_null(Cart::content()->where($id)) ){
+            Cart::remove($id);
+            dd('yeag');
+        }elseif ( is_null(Cart::instance('saveForLater')->content()->where($id)) ){
+            Cart::saveForLater()->remove($id);
+            dd('ynn');
+        }
+
+        return redirect()->back();
     }
 
     /**
      * Display the specified resource.
      *
      * @param  int  $id
-     * @return \Illuminate\Http\Response
+     * @return \Inertia\Response|\Inertia\ResponseFactory
      */
-    public function show($id)
+    public function show()
     {
-        //
+
     }
 
     /**
