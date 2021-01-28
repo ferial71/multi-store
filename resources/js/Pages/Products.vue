@@ -1,5 +1,5 @@
 <template>
-    <app-layout>
+    <app-layout >
         <template #header>
             <h2 class="font-semibold text-xl text-gray-800 leading-tight">
                 Products
@@ -111,9 +111,15 @@
             Welcome,
         },
         props: {
-            products: Object
+            products: Object,
         },
         methods: {
+            showProduct(){
+                this.$inertia.post('products.show', id)
+                    .then(()=>{
+//
+                    })
+            },
             formatCurrency(amount) {
                 amount = (amount / 100);
                 return amount.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
