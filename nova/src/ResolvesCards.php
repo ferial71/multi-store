@@ -2,7 +2,7 @@
 
 namespace Laravel\Nova;
 
-use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Laravel\Nova\Http\Requests\NovaRequest;
 
 trait ResolvesCards
@@ -10,21 +10,33 @@ trait ResolvesCards
     /**
      * Get the cards that are available for the given request.
      *
-     * @param  \Laravel\Nova\Http\Requests\NovaRequest  $request
-     * @return \Illuminate\Support\Collection
+     * @return \Illuminate\Support\Collection<int, \Laravel\Nova\Metrics\Metric|\Laravel\Nova\Card>
      */
-    public function availableCards(NovaRequest $request)
+    public function availableCards(NovaRequest $request): Collection
     {
-        return $this->resolveCards($request)->filter->authorize($request)->values();
+        return $this->resolveCards($request)
+            ->filter(static fn ($card) => $card->onlyOnDetail === false && $card->authorize($request))
+            ->values();
+    }
+
+    /**
+     * Get the cards that are available for the given request.
+     *
+     * @return \Illuminate\Support\Collection<int, \Laravel\Nova\Metrics\Metric|\Laravel\Nova\Card>
+     */
+    public function availableCardsForDetail(NovaRequest $request): Collection
+    {
+        return $this->resolveCards($request)
+            ->filter(static fn ($card) => $card->onlyOnDetail === true && $card->authorize($request))
+            ->values();
     }
 
     /**
      * Get the cards for the given request.
      *
-     * @param  \Laravel\Nova\Http\Requests\NovaRequest  $request
-     * @return \Illuminate\Support\Collection
+     * @return \Illuminate\Support\Collection<int, \Laravel\Nova\Metrics\Metric|\Laravel\Nova\Card>
      */
-    public function resolveCards(NovaRequest $request)
+    public function resolveCards(NovaRequest $request): Collection
     {
         return collect(array_values($this->filter($this->cards($request))));
     }
@@ -32,10 +44,9 @@ trait ResolvesCards
     /**
      * Get the cards available on the entity.
      *
-     * @param  \Illuminate\Http\Request  $request
      * @return array
      */
-    public function cards(Request $request)
+    public function cards(NovaRequest $request)
     {
         return [];
     }

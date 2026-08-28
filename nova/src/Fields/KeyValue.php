@@ -3,9 +3,13 @@
 namespace Laravel\Nova\Fields;
 
 use Laravel\Nova\Http\Requests\NovaRequest;
+use Laravel\Nova\Nova;
+use Stringable;
 
 class KeyValue extends Field
 {
+    use SupportsDependentFields;
+
     /**
      * The field's component.
      *
@@ -23,28 +27,28 @@ class KeyValue extends Field
     /**
      * The label that should be used for the key heading.
      *
-     * @var string
+     * @var \Stringable|string|null
      */
-    public $keyLabel;
+    public $keyLabel = null;
 
     /**
      * The label that should be used for the value heading.
      *
-     * @var string
+     * @var \Stringable|string|null
      */
-    public $valueLabel;
+    public $valueLabel = null;
 
     /**
      * The label that should be used for the "add row" button.
      *
-     * @var string
+     * @var \Stringable|string|null
      */
-    public $actionText;
+    public $actionText = null;
 
     /**
      * The callback used to determine if the keys are readonly.
      *
-     * @var \Closure
+     * @var (callable(\Laravel\Nova\Http\Requests\NovaRequest):(bool))|bool|null
      */
     public $readonlyKeysCallback;
 
@@ -63,28 +67,52 @@ class KeyValue extends Field
     public $canDeleteRow = true;
 
     /**
+     * Resolve the field's value.
+     *
+     * @param  \Laravel\Nova\Resource|\Illuminate\Database\Eloquent\Model|object  $resource
+     */
+    #[\Override]
+    public function resolve($resource, ?string $attribute = null): void
+    {
+        parent::resolve($resource, $attribute);
+
+        if ($this->value === '{}') {
+            $this->value = null;
+        }
+    }
+
+    /**
      * Hydrate the given attribute on the model based on the incoming request.
      *
-     * @param  \Laravel\Nova\Http\Requests\NovaRequest  $request
-     * @param  string  $requestAttribute
-     * @param  object  $model
-     * @param  string  $attribute
-     * @return void
+     * @param  \Illuminate\Database\Eloquent\Model|\Laravel\Nova\Support\Fluent  $model
      */
-    protected function fillAttributeFromRequest(NovaRequest $request, $requestAttribute, $model, $attribute)
+    #[\Override]
+    protected function fillAttributeFromRequest(NovaRequest $request, string $requestAttribute, object $model, string $attribute): void
     {
         if ($request->exists($requestAttribute)) {
-            $model->{$attribute} = json_decode($request[$requestAttribute], true);
+            // The value for KeyValue fields are serialized on the front-end using `JSON.stringify`,
+            // so we need to convert it to an associative array before saving it to the database.
+            $this->fillModelWithData($model, json_decode($request[$requestAttribute], true), $attribute);
         }
+    }
+
+    /**
+     * Fill the model's attribute with data.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model|\Laravel\Nova\Support\Fluent  $model
+     */
+    #[\Override]
+    public function fillModelWithData(object $model, mixed $value, string $attribute): void
+    {
+        $model->forceFill([str_replace('.', '->', $attribute) => $value]);
     }
 
     /**
      * The label that should be used for the key table heading.
      *
-     * @param  string  $label
      * @return $this
      */
-    public function keyLabel($label)
+    public function keyLabel(Stringable|string $label)
     {
         $this->keyLabel = $label;
 
@@ -94,10 +122,9 @@ class KeyValue extends Field
     /**
      * The label that should be used for the value table heading.
      *
-     * @param  string  $label
      * @return $this
      */
-    public function valueLabel($label)
+    public function valueLabel(Stringable|string $label)
     {
         $this->valueLabel = $label;
 
@@ -107,10 +134,9 @@ class KeyValue extends Field
     /**
      * The label that should be used for the add row button.
      *
-     * @param  string  $label
      * @return $this
      */
-    public function actionText($label)
+    public function actionText(Stringable|string $label)
     {
         $this->actionText = $label;
 
@@ -120,10 +146,10 @@ class KeyValue extends Field
     /**
      * Set the callback used to determine if the keys are readonly.
      *
-     * @param  \Closure|bool  $callback
+     * @param  (callable(\Laravel\Nova\Http\Requests\NovaRequest):(bool))|bool  $callback
      * @return $this
      */
-    public function disableEditingKeys($callback = true)
+    public function disableEditingKeys(callable|bool $callback = true)
     {
         $this->readonlyKeysCallback = $callback;
 
@@ -132,14 +158,11 @@ class KeyValue extends Field
 
     /**
      * Determine if the keys are readonly.
-     *
-     * @param  \Laravel\Nova\Http\Requests\NovaRequest  $request
-     * @return bool
      */
-    public function readonlyKeys(NovaRequest $request)
+    public function readonlyKeys(NovaRequest $request): bool
     {
-        return with($this->readonlyKeysCallback, function ($callback) use ($request) {
-            return is_callable($callback) ? call_user_func($callback, $request) : ($callback === true);
+        return with($this->readonlyKeysCallback, static function ($callback) use ($request) {
+            return \is_callable($callback) ? \call_user_func($callback, $request) : ($callback === true);
         });
     }
 
@@ -170,14 +193,15 @@ class KeyValue extends Field
     /**
      * Prepare the field element for JSON serialization.
      *
-     * @return array
+     * @return array<string, mixed>
      */
-    public function jsonSerialize()
+    #[\Override]
+    public function jsonSerialize(): array
     {
         return array_merge(parent::jsonSerialize(), [
-            'keyLabel' => $this->keyLabel ?? __('Key'),
-            'valueLabel' => $this->valueLabel ?? __('Value'),
-            'actionText' => $this->actionText ?? __('Add row'),
+            'keyLabel' => $this->keyLabel ?? Nova::__('Key'),
+            'valueLabel' => $this->valueLabel ?? Nova::__('Value'),
+            'actionText' => $this->actionText ?? Nova::__('Add row'),
             'readonlyKeys' => $this->readonlyKeys(app(NovaRequest::class)),
             'canAddRow' => $this->canAddRow,
             'canDeleteRow' => $this->canDeleteRow,

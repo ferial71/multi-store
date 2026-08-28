@@ -2,6 +2,7 @@
 
 namespace Laravel\Nova\Actions;
 
+use Illuminate\Contracts\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Laravel\Nova\Fields\DateTime;
 use Laravel\Nova\Fields\ID;
@@ -11,153 +12,111 @@ use Laravel\Nova\Fields\Status;
 use Laravel\Nova\Fields\Text;
 use Laravel\Nova\Fields\Textarea;
 use Laravel\Nova\Http\Requests\NovaRequest;
+use Laravel\Nova\Nova;
 use Laravel\Nova\Resource;
 
+/**
+ * @template TActionModel of \Laravel\Nova\Actions\ActionEvent
+ *
+ * @extends \Laravel\Nova\Resource<TActionModel>
+ */
 class ActionResource extends Resource
 {
     /**
      * The model the resource corresponds to.
      *
-     * @var string
+     * @var class-string<TActionModel>
      */
     public static $model = ActionEvent::class;
 
     /**
-     * Indicates whether the resource should automatically poll for new resources.
+     * The policy the resource corrsponds to.
      *
-     * @var bool
+     * @var class-string|null
      */
+    public static $policy = ActionResourcePolicy::class;
+
+    /** {@inheritDoc} */
+    public static $title = 'name';
+
+    /** {@inheritDoc} */
+    public static $with = ['target', 'user'];
+
+    /** {@inheritDoc} */
+    public static $globallySearchable = false;
+
+    /** {@inheritDoc} */
     public static $polling = true;
 
-    /**
-     * Determine if the current user can create new resources.
-     *
-     * @param  \Illuminate\Http\Request  $request
-     * @return bool
-     */
-    public static function authorizedToCreate(Request $request)
-    {
-        return false;
-    }
-
-    /**
-     * Determine if the current user can edit resources.
-     *
-     * @param  \Illuminate\Http\Request  $request
-     * @return bool
-     */
-    public function authorizedToUpdate(Request $request)
-    {
-        return false;
-    }
-
-    /**
-     * Determine if the current user can delete resources.
-     *
-     * @param  \Illuminate\Http\Request  $request
-     * @return bool
-     */
-    public function authorizedToDelete(Request $request)
-    {
-        return false;
-    }
-
-    /**
-     * Get the fields displayed by the resource.
-     *
-     * @param  \Illuminate\Http\Request  $request
-     * @return array
-     */
-    public function fields(Request $request)
+    /** {@inheritDoc} */
+    #[\Override]
+    public function fields(NovaRequest $request)
     {
         return [
-            ID::make('ID', 'id'),
-            Text::make(__('Action Name'), 'name', function ($value) {
-                return __($value);
-            }),
+            ID::make(Nova::__('ID'), 'id')->showOnPreview(),
+            Text::make(Nova::__('Action Name'), 'name', static fn ($value) => Nova::__($value))->showOnPreview(),
 
-            Text::make(__('Action Initiated By'), function () {
+            Text::make(Nova::__('Action Initiated By'), function () {
                 return $this->user->name ?? $this->user->email ?? __('Nova User');
+            })->showOnPreview(),
+
+            MorphToActionTarget::make(Nova::__('Action Target'), 'target')->showOnPreview(),
+
+            Status::make(Nova::__('Action Status'), 'status', static function ($value) {
+                return transform($value, static fn ($value) => Nova::__(ucfirst($value)));
+            })->loadingWhen([Nova::__('Waiting'), Nova::__('Running')])->failedWhen([Nova::__('Failed')]),
+
+            $this->when(isset($this->original), static function () {
+                return KeyValue::make(Nova::__('Original'), 'original')->showOnPreview();
             }),
 
-            MorphToActionTarget::make(__('Action Target'), 'target'),
-
-            Status::make(__('Action Status'), 'status', function ($value) {
-                return __(ucfirst($value));
-            })->loadingWhen([__('Waiting'), __('Running')])->failedWhen([__('Failed')]),
-
-            $this->when(isset($this->original), function () {
-                return KeyValue::make(__('Original'), 'original');
+            $this->when(isset($this->changes), static function () {
+                return KeyValue::make(Nova::__('Changes'), 'changes')->showOnPreview();
             }),
 
-            $this->when(isset($this->changes), function () {
-                return KeyValue::make(__('Changes'), 'changes');
-            }),
+            Textarea::make(Nova::__('Exception'), 'exception')->showOnPreview(),
 
-            Textarea::make(__('Exception'), 'exception'),
-
-            DateTime::make(__('Action Happened At'), 'created_at')->exceptOnForms(),
+            DateTime::make(Nova::__('Action Happened At'), 'created_at')->exceptOnForms()->showOnPreview(),
         ];
     }
 
-    /**
-     * Build an "index" query for the given resource.
-     *
-     * @param  \Laravel\Nova\Http\Requests\NovaRequest  $request
-     * @param  \Illuminate\Database\Eloquent\Builder  $query
-     * @return \Illuminate\Database\Eloquent\Builder
-     */
-    public static function indexQuery(NovaRequest $request, $query)
+    /** {@inheritDoc} */
+    #[\Override]
+    public static function indexQuery(NovaRequest $request, Builder $query)
     {
         return $query->with('user');
     }
 
-    /**
-     * Determine if this resource is available for navigation.
-     *
-     * @param  \Illuminate\Http\Request  $request
-     * @return bool
-     */
+    /** {@inheritDoc} */
+    #[\Override]
     public static function availableForNavigation(Request $request)
     {
         return false;
     }
 
-    /**
-     * Determine if this resource is searchable.
-     *
-     * @return bool
-     */
+    /** {@inheritDoc} */
+    #[\Override]
     public static function searchable()
     {
         return false;
     }
 
-    /**
-     * Get the displayable label of the resource.
-     *
-     * @return string
-     */
+    /** {@inheritDoc} */
+    #[\Override]
     public static function label()
     {
-        return __('Actions');
+        return Nova::__('Action Events');
     }
 
-    /**
-     * Get the displayable singular label of the resource.
-     *
-     * @return string
-     */
+    /** {@inheritDoc} */
+    #[\Override]
     public static function singularLabel()
     {
-        return __('Action');
+        return Nova::__('Action Event');
     }
 
-    /**
-     * Get the URI key for the resource.
-     *
-     * @return string
-     */
+    /** {@inheritDoc} */
+    #[\Override]
     public static function uriKey()
     {
         return 'action-events';

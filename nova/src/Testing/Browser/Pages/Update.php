@@ -2,86 +2,94 @@
 
 namespace Laravel\Nova\Testing\Browser\Pages;
 
+use Illuminate\Database\Eloquent\Model;
 use Laravel\Dusk\Browser;
+use Laravel\Nova\Testing\Browser\Components\Modals\CreateRelationModalComponent;
 
 class Update extends Page
 {
-    use HasSearchableRelations;
+    use InteractsWithRelations;
 
-    public $resourceName;
-    public $resourceId;
+    /**
+     * The Resource ID.
+     *
+     * @var \Illuminate\Database\Eloquent\Model|string|int
+     */
+    public mixed $resourceId;
 
     /**
      * Create a new page instance.
      *
-     * @param  string  $resourceName
-     * @param  int  $resourceId
-     * @return void
+     * @param  \Illuminate\Database\Eloquent\Model|string|int  $resourceId
+     * @param  array<string, mixed>  $queryParams
      */
-    public function __construct($resourceName, $resourceId)
-    {
-        $this->resourceId = $resourceId;
-        $this->resourceName = $resourceName;
-    }
+    public function __construct(
+        public string $resourceName,
+        mixed $resourceId,
+        array $queryParams = []
+    ) {
+        $this->resourceId = $resourceId instanceof Model ? $resourceId->getKey() : $resourceId;
 
-    /**
-     * Get the URL for the page.
-     *
-     * @return string
-     */
-    public function url()
-    {
-        return '/nova/resources/'.$this->resourceName.'/'.$this->resourceId.'/edit';
+        $this->setNovaPage("/resources/{$this->resourceName}/{$this->resourceId}/edit", $queryParams);
     }
 
     /**
      * Run the inline create relation.
+     *
+     * @throws \Facebook\WebDriver\Exception\TimeOutException
      */
-    public function runInlineCreate(Browser $browser, $uriKey, callable $fieldCallback)
+    public function runInlineCreate(Browser $browser, string $uriKey, callable $fieldCallback): void
     {
-        $browser->click("@{$uriKey}-inline-create")->pause(500);
+        $browser->whenAvailable("@{$uriKey}-inline-create", static function (Browser $browser) use ($fieldCallback) {
+            $browser->click('')
+                ->elsewhereWhenAvailable(new CreateRelationModalComponent, static function (Browser $browser) use ($fieldCallback) {
+                    $fieldCallback($browser);
 
-        $browser->elsewhere('.modal', function ($browser) use ($fieldCallback) {
-            $fieldCallback($browser);
-
-            $browser->create()->pause(250);
+                    $browser->confirm()->pause(250);
+                });
         });
     }
 
     /**
      * Click the update button.
+     *
+     * @throws \Facebook\WebDriver\Exception\TimeOutException
      */
-    public function update(Browser $browser)
+    public function update(Browser $browser): void
     {
-        $browser->click('@update-button')->pause(500);
+        $browser->dismissToasted()
+            ->waitFor('@update-button')
+            ->click('@update-button')
+            ->pause(500);
     }
 
     /**
      * Click the update and continue editing button.
+     *
+     * @throws \Facebook\WebDriver\Exception\TimeOutException
      */
-    public function updateAndContinueEditing(Browser $browser)
+    public function updateAndContinueEditing(Browser $browser): void
     {
-        $browser->click('@update-and-continue-editing-button')->pause(500);
+        $browser->dismissToasted()
+            ->waitFor('@update-and-continue-editing-button')
+            ->click('@update-and-continue-editing-button')
+            ->pause(500);
+    }
+
+    /**
+     * Click the cancel button.
+     */
+    public function cancel(Browser $browser): void
+    {
+        $browser->dismissToasted()
+            ->click('@cancel-update-button');
     }
 
     /**
      * Assert that the browser is on the page.
-     *
-     * @param  Browser  $browser
-     * @return void
      */
-    public function assert(Browser $browser)
+    public function assert(Browser $browser): void
     {
-        $browser->pause(500);
-    }
-
-    /**
-     * Get the element shortcuts for the page.
-     *
-     * @return array
-     */
-    public function elements()
-    {
-        return [];
+        $browser->assertOk()->waitFor('@nova-form');
     }
 }

@@ -2,44 +2,28 @@
 
 namespace Laravel\Nova;
 
-use Illuminate\Support\Arr;
-use Illuminate\Support\Carbon;
-use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\Route;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Support\ServiceProvider;
-use Laravel\Nova\Events\ServingNova;
-use Laravel\Nova\Tools\Dashboard;
-use Laravel\Nova\Tools\ResourceManager;
 
 class NovaServiceProvider extends ServiceProvider
 {
     /**
      * Bootstrap any package services.
-     *
-     * @return void
      */
-    public function boot()
+    public function boot(): void
     {
         if ($this->app->runningInConsole()) {
             $this->registerPublishing();
         }
 
-        $this->registerDashboards();
         $this->registerResources();
-        $this->registerTools();
-        $this->registerCarbonMacros();
-        $this->registerCollectionMacros();
-        $this->registerJsonVariables();
-
-        Nova::resources([config('nova.actions.resource')]);
+        $this->registerRelationsMacros();
     }
 
     /**
      * Register the package's publishable resources.
-     *
-     * @return void
      */
-    protected function registerPublishing()
+    protected function registerPublishing(): void
     {
         $this->publishes([
             __DIR__.'/Console/stubs/NovaServiceProvider.stub' => app_path('Providers/NovaServiceProvider.php'),
@@ -51,136 +35,35 @@ class NovaServiceProvider extends ServiceProvider
 
         $this->publishes([
             __DIR__.'/../public' => public_path('vendor/nova'),
-        ], 'nova-assets');
+        ], ['nova-assets', 'laravel-assets']);
 
         $this->publishes([
-            __DIR__.'/../resources/lang' => resource_path('lang/vendor/nova'),
+            __DIR__.'/../resources/lang' => lang_path('vendor/nova'),
         ], 'nova-lang');
 
-        $this->publishes([
-            __DIR__.'/../resources/views/partials' => resource_path('views/vendor/nova/partials'),
-        ], 'nova-views');
-
-        $this->publishes([
-            __DIR__.'/../database/migrations' => database_path('migrations'),
-        ], 'nova-migrations');
-    }
-
-    /**
-     * Register the dashboards used by Nova.
-     *
-     * @return void
-     */
-    protected function registerDashboards()
-    {
-        Nova::serving(function (ServingNova $event) {
-            Nova::copyDefaultDashboardCards();
-        });
+        if (method_exists($this, 'publishesMigrations')) {
+            $this->publishesMigrations([
+                __DIR__.'/../database/migrations' => database_path('migrations'),
+            ], Nova::runsMigrations() ? 'nova-migrations' : null);
+        } else {
+            $this->publishes([
+                __DIR__.'/../database/migrations' => database_path('migrations'),
+            ], 'nova-migrations');
+        }
     }
 
     /**
      * Register the package resources such as routes, templates, etc.
-     *
-     * @return void
      */
-    protected function registerResources()
+    protected function registerResources(): void
     {
-        $this->loadViewsFrom(__DIR__.'/../resources/views', 'nova');
-        $this->loadTranslationsFrom(__DIR__.'/../resources/lang', 'nova');
-        $this->loadJsonTranslationsFrom(resource_path('lang/vendor/nova'));
-
-        if (Nova::runsMigrations()) {
-            $this->loadMigrationsFrom(__DIR__.'/../database/migrations');
-        }
-
-        $this->registerRoutes();
-    }
-
-    /**
-     * Register the package routes.
-     *
-     * @return void
-     */
-    protected function registerRoutes()
-    {
-        Route::group($this->routeConfiguration(), function () {
-            $this->loadRoutesFrom(__DIR__.'/../routes/api.php');
-        });
-    }
-
-    /**
-     * Get the Nova route group configuration array.
-     *
-     * @return array
-     */
-    protected function routeConfiguration()
-    {
-        return [
-            'namespace' => 'Laravel\Nova\Http\Controllers',
-            'domain' => config('nova.domain', null),
-            // 'as' => 'nova.api.',
-            'prefix' => 'nova-api',
-            'middleware' => 'nova',
-        ];
-    }
-
-    /**
-     * Boot the standard Nova tools.
-     *
-     * @return void
-     */
-    protected function registerTools()
-    {
-        Nova::tools([
-            new Dashboard,
-            new ResourceManager,
-        ]);
-    }
-
-    /**
-     * Register the Nova Carbon macros.
-     *
-     * @return void
-     */
-    protected function registerCarbonMacros()
-    {
-        Carbon::mixin(new Macros\FirstDayOfQuarter);
-        Carbon::mixin(new Macros\FirstDayOfPreviousQuarter);
-    }
-
-    /**
-     * Register the Nova JSON variables.
-     *
-     * @return void
-     */
-    protected function registerJsonVariables()
-    {
-        Nova::serving(function (ServingNova $event) {
-            // Load the default Nova translations.
-            Nova::translations(
-                resource_path('lang/vendor/nova/'.app()->getLocale().'.json')
-            );
-
-            Nova::provideToScript([
-                'appName' => config('app.name', 'Laravel Nova'),
-                'timezone' => config('app.timezone', 'UTC'),
-                'translations' => Nova::allTranslations(),
-                'userTimezone' => Nova::resolveUserTimezone($event->request),
-                'pagination' => config('nova.pagination', 'links'),
-                'locale' => config('app.locale', 'en'),
-                'algoliaAppId' => config('services.algolia.appId'),
-                'algoliaApiKey' => config('services.algolia.apiKey'),
-                'version' => Nova::version(),
-            ]);
-        });
+        // ...
     }
 
     /**
      * Register any application services.
-     *
-     * @return void
      */
-    public function register()
+    public function register(): void
     {
         $this->commands([
             Console\ActionCommand::class,
@@ -193,12 +76,17 @@ class NovaServiceProvider extends ServiceProvider
             Console\FieldCommand::class,
             Console\InstallCommand::class,
             Console\LensCommand::class,
+            Console\CheckLicenseCommand::class,
             Console\PartitionCommand::class,
+            Console\PolicyMakeCommand::class,
+            Console\ProgressCommand::class,
             Console\PublishCommand::class,
+            Console\RepeatableCommand::class,
             Console\ResourceCommand::class,
             Console\ResourceToolCommand::class,
             Console\StubPublishCommand::class,
-            Console\ThemeCommand::class,
+            Console\TableCommand::class,
+            Console\TranslateCommand::class,
             Console\ToolCommand::class,
             Console\TrendCommand::class,
             Console\UserCommand::class,
@@ -206,10 +94,11 @@ class NovaServiceProvider extends ServiceProvider
         ]);
     }
 
-    protected function registerCollectionMacros()
+    /**
+     * Register Relations macros.
+     */
+    protected function registerRelationsMacros(): void
     {
-        Collection::macro('isAssoc', function () {
-            return Arr::isAssoc($this->toBase()->all());
-        });
+        BelongsToMany::mixin(new Query\Mixin\BelongsToMany);
     }
 }

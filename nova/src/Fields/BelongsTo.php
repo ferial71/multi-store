@@ -2,18 +2,35 @@
 
 namespace Laravel\Nova\Fields;
 
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Http\Request;
-use Illuminate\Support\Str;
+use Laravel\Nova\Contracts\FilterableField;
 use Laravel\Nova\Contracts\RelatableField;
+use Laravel\Nova\Fields\Filters\BelongsToFilter;
 use Laravel\Nova\Http\Requests\NovaRequest;
 use Laravel\Nova\Http\Requests\ResourceIndexRequest;
+use Laravel\Nova\Nova;
+use Laravel\Nova\Resource;
 use Laravel\Nova\Rules\Relatable;
-use Laravel\Nova\TrashedStatus;
+use Stringable;
 
-class BelongsTo extends Field implements RelatableField
+use function Orchestra\Sidekick\Http\safe_int;
+
+/**
+ * @method static static make(\Stringable|string $name, string|null $attribute = null, string|null $resource = null)
+ */
+class BelongsTo extends Field implements FilterableField, RelatableField
 {
-    use FormatsRelatableDisplayValues, ResolvesReverseRelation, DeterminesIfCreateRelationCanBeShown, Searchable;
+    use AssociatableRelation;
+    use DeterminesIfCreateRelationCanBeShown;
+    use EloquentFilterable;
+    use FormatsRelatableDisplayValues;
+    use Peekable;
+    use ResolvesReverseRelation;
+    use Searchable;
+    use SupportsDependentFields;
+    use SupportsWithTrashedRelatables;
 
     /**
      * The field's component.
@@ -25,7 +42,7 @@ class BelongsTo extends Field implements RelatableField
     /**
      * The class name of the related resource.
      *
-     * @var string
+     * @var class-string<\Laravel\Nova\Resource>
      */
     public $resourceClass;
 
@@ -37,6 +54,13 @@ class BelongsTo extends Field implements RelatableField
     public $resourceName;
 
     /**
+     * The resolved BelongsTo Resource.
+     *
+     * @var \Laravel\Nova\Resource|null
+     */
+    public $belongsToResource = null;
+
+    /**
      * The name of the Eloquent "belongs to" relationship.
      *
      * @var string
@@ -46,94 +70,90 @@ class BelongsTo extends Field implements RelatableField
     /**
      * The key of the related Eloquent model.
      *
-     * @var string
+     * @var string|int|null
      */
-    public $belongsToId;
-
-    /**
-     * The column that should be displayed for the field.
-     *
-     * @var \Closure
-     */
-    public $display;
+    public $belongsToId = null;
 
     /**
      * Indicates if the related resource can be viewed.
      *
-     * @var bool
+     * @var bool|null
      */
-    public $viewable = true;
+    public $viewable = null;
 
     /**
      * The callback that should be run when the field is filled.
      *
-     * @var \Closure
+     * @var callable(\Laravel\Nova\Http\Requests\NovaRequest, mixed):void
      */
     public $filledCallback;
 
     /**
      * The attribute that is the inverse of this relationship.
      *
-     * @var string
+     * @var string|null
      */
-    public $inverse;
+    public $inverse = null;
 
     /**
      * The displayable singular label of the relation.
      *
-     * @var string
+     * @var \Stringable|string
      */
     public $singularLabel;
 
     /**
-     * Indicates whether the field should display the "With Trashed" option.
-     *
-     * @var bool
-     */
-    public $displaysWithTrashed = true;
-
-    /**
      * Create a new field.
      *
-     * @param  string  $name
-     * @param  string|null  $attribute
-     * @param  string|null  $resource
-     * @return void
+     * @param  \Stringable|string  $name
+     * @param  class-string<\Laravel\Nova\Resource>|null  $resource
      */
-    public function __construct($name, $attribute = null, $resource = null)
+    public function __construct($name, ?string $attribute = null, ?string $resource = null)
     {
         parent::__construct($name, $attribute);
 
-        $resource = $resource ?? ResourceRelationshipGuesser::guessResource($name);
+        $resource ??= ResourceRelationshipGuesser::guessResource($name);
 
         $this->resourceClass = $resource;
         $this->resourceName = $resource::uriKey();
-        $this->belongsToRelationship = $this->attribute;
+        $this->belongsToRelationship = $this->attribute = $attribute ?? ResourceRelationshipGuesser::guessRelation($name);
         $this->singularLabel = $name;
+    }
+
+    /**
+     * Get the relationship name.
+     */
+    public function relationshipName(): string
+    {
+        return $this->belongsToRelationship;
+    }
+
+    /**
+     * Get the relationship type.
+     */
+    public function relationshipType(): string
+    {
+        return 'belongsTo';
     }
 
     /**
      * Determine if the field should be displayed for the given request.
      *
-     * @param  \Illuminate\Http\Request  $request
+     * @param  \Illuminate\Http\Request&\Laravel\Nova\Http\Requests\NovaRequest  $request
      * @return bool
      */
+    #[\Override]
     public function authorize(Request $request)
     {
-        return $this->isNotRedundant($request) && call_user_func(
-            [$this->resourceClass, 'authorizedToViewAny'], $request
-        ) && parent::authorize($request);
+        return $this->isNotRedundant($request) && parent::authorize($request);
     }
 
     /**
      * Determine if the field is not redundant.
      *
      * Ex: Is this a "user" belongs to field in a blog post list being shown on the "user" detail page.
-     *
-     * @param  \Illuminate\Http\Request  $request
-     * @return bool
      */
-    public function isNotRedundant(Request $request)
+    public function isNotRedundant(NovaRequest $request): bool
     {
         return ! $request instanceof ResourceIndexRequest || ! $this->isReverseRelation($request);
     }
@@ -141,38 +161,43 @@ class BelongsTo extends Field implements RelatableField
     /**
      * Resolve the field's value.
      *
-     * @param  mixed  $resource
-     * @param  string|null  $attribute
-     * @return void
+     * @param  \Laravel\Nova\Resource|\Illuminate\Database\Eloquent\Model|object  $resource
      */
-    public function resolve($resource, $attribute = null)
+    #[\Override]
+    public function resolve($resource, ?string $attribute = null): void
     {
         $value = null;
 
-        if ($resource->relationLoaded($this->attribute)) {
-            $value = $resource->getRelation($this->attribute);
-        }
-
-        if (! $value) {
-            $value = $resource->{$this->attribute}()->withoutGlobalScopes()->getResults();
+        if ($resource instanceof Resource || $resource instanceof Model) {
+            if ($resource->relationLoaded($this->attribute)) {
+                $value = $resource->getRelation($this->attribute);
+            } else {
+                $value = $resource->{$this->attribute}()->withoutGlobalScopes()->getResults();
+            }
         }
 
         if ($value) {
-            $this->belongsToId = $value->getKey();
+            $this->belongsToResource = new $this->resourceClass($value);
 
-            $resource = new $this->resourceClass($value);
+            $this->belongsToId = safe_int($value->getKey());
 
-            $this->value = $this->formatDisplayValue($resource);
+            $this->value = $this->formatDisplayValue($this->belongsToResource);
 
-            $this->viewable = $this->viewable
-                && $resource->authorizedToView(request());
+            $this->viewable = ($this->viewable ?? true) && $this->belongsToResource->authorizedToView(app(NovaRequest::class));
         }
+    }
+
+    /**
+     * Resolve dependent field value.
+     */
+    public function resolveDependentValue(NovaRequest $request): mixed
+    {
+        return $this->belongsToId ?? $this->resolveDefaultValue($request);
     }
 
     /**
      * Define the callback that should be used to resolve the field's value.
      *
-     * @param  callable  $displayCallback
      * @return $this
      */
     public function displayUsing(callable $displayCallback)
@@ -182,32 +207,29 @@ class BelongsTo extends Field implements RelatableField
 
     /**
      * Get the validation rules for this field.
-     *
-     * @param  \Laravel\Nova\Http\Requests\NovaRequest  $request
-     * @return array
      */
-    public function getRules(NovaRequest $request)
+    #[\Override]
+    public function getRules(NovaRequest $request): array
     {
         $query = $this->buildAssociatableQuery(
-            $request, $request->{$this->attribute.'_trashed'} === 'true'
-        );
+            $request, $this->resourceClass, $request->{$this->attribute.'_trashed'} === 'true'
+        )->toBase();
 
         return array_merge_recursive(parent::getRules($request), [
-            $this->attribute => array_filter([
+            $this->attribute => [
                 $this->nullable ? 'nullable' : 'required',
-                new Relatable($request, $query),
-            ]),
+                new Relatable($request, $query, $this),
+            ],
         ]);
     }
 
     /**
      * Hydrate the given attribute on the model based on the incoming request.
      *
-     * @param  \Laravel\Nova\Http\Requests\NovaRequest  $request
-     * @param  object  $model
-     * @return void
+     * @param  \Illuminate\Database\Eloquent\Model|\Laravel\Nova\Support\Fluent  $model
      */
-    public function fill(NovaRequest $request, $model)
+    #[\Override]
+    public function fill(NovaRequest $request, object $model): void
     {
         $foreignKey = $this->getRelationForeignKeyName($model->{$this->attribute}());
 
@@ -217,21 +239,33 @@ class BelongsTo extends Field implements RelatableField
             $model->unsetRelation($this->attribute);
         }
 
-        if ($this->filledCallback) {
-            call_user_func($this->filledCallback, $request, $model);
+        if (\is_callable($this->filledCallback)) {
+            \call_user_func($this->filledCallback, $request, $model);
         }
     }
 
     /**
      * Hydrate the given attribute on the model based on the incoming request.
      *
-     * @param  \Laravel\Nova\Http\Requests\NovaRequest  $request
-     * @param  string  $requestAttribute
-     * @param  object  $model
-     * @param  string  $attribute
-     * @return mixed
+     * @param  \Illuminate\Database\Eloquent\Model|\Laravel\Nova\Support\Fluent  $model
      */
-    protected function fillAttributeFromRequest(NovaRequest $request, $requestAttribute, $model, $attribute)
+    #[\Override]
+    public function fillForAction(NovaRequest $request, object $model): void
+    {
+        if ($request->exists($this->attribute)) {
+            $value = $request[$this->attribute];
+
+            $model->{$this->attribute} = $this->resourceClass::newModel()->query()->find($value);
+        }
+    }
+
+    /**
+     * Hydrate the given attribute on the model based on the incoming request.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model|\Laravel\Nova\Support\Fluent  $model
+     */
+    #[\Override]
+    protected function fillAttributeFromRequest(NovaRequest $request, string $requestAttribute, object $model, string $attribute): void
     {
         if ($request->exists($requestAttribute)) {
             $value = $request[$requestAttribute];
@@ -240,7 +274,7 @@ class BelongsTo extends Field implements RelatableField
                 return $model->{$this->attribute}();
             });
 
-            if ($this->isNullValue($value)) {
+            if ($this->isValidNullValue($value)) {
                 $relation->dissociate();
             } else {
                 $relation->associate($relation->getQuery()->withoutGlobalScopes()->find($value));
@@ -249,84 +283,30 @@ class BelongsTo extends Field implements RelatableField
     }
 
     /**
-     * Build an associatable query for the field.
-     *
-     * @param  \Laravel\Nova\Http\Requests\NovaRequest  $request
-     * @param  bool  $withTrashed
-     * @return \Illuminate\Database\Eloquent\Builder
-     */
-    public function buildAssociatableQuery(NovaRequest $request, $withTrashed = false)
-    {
-        $model = forward_static_call(
-            [$resourceClass = $this->resourceClass, 'newModel']
-        );
-
-        $query = $request->first === 'true'
-                        ? $model->newQueryWithoutScopes()->whereKey($request->current)
-                        : $resourceClass::buildIndexQuery(
-                                $request, $model->newQuery(), $request->search,
-                                [], [], TrashedStatus::fromBoolean($withTrashed)
-                          );
-
-        return $query->tap(function ($query) use ($request, $model) {
-            forward_static_call($this->associatableQueryCallable($request, $model), $request, $query);
-        });
-    }
-
-    /**
-     * Get the associatable query method name.
-     *
-     * @param  \Laravel\Nova\Http\Requests\NovaRequest  $request
-     * @param  \Illuminate\Database\Eloquent\Model  $model
-     * @return array
-     */
-    protected function associatableQueryCallable(NovaRequest $request, $model)
-    {
-        return ($method = $this->associatableQueryMethod($request, $model))
-                    ? [$request->resource(), $method]
-                    : [$this->resourceClass, 'relatableQuery'];
-    }
-
-    /**
-     * Get the associatable query method name.
-     *
-     * @param  \Laravel\Nova\Http\Requests\NovaRequest  $request
-     * @param  \Illuminate\Database\Eloquent\Model  $model
-     * @return string
-     */
-    protected function associatableQueryMethod(NovaRequest $request, $model)
-    {
-        $method = 'relatable'.Str::plural(class_basename($model));
-
-        if (method_exists($request->resource(), $method)) {
-            return $method;
-        }
-    }
-
-    /**
      * Format the given associatable resource.
      *
-     * @param  \Laravel\Nova\Http\Requests\NovaRequest  $request
-     * @param  mixed  $resource
-     * @return array
+     * @param  \Laravel\Nova\Resource|\Illuminate\Database\Eloquent\Model  $resource
      */
-    public function formatAssociatableResource(NovaRequest $request, $resource)
+    public function formatAssociatableResource(NovaRequest $request, $resource): array
     {
+        if (! $resource instanceof Resource) {
+            $resource = Nova::newResourceFromModel($resource);
+        }
+
         return array_filter([
             'avatar' => $resource->resolveAvatarUrl($request),
             'display' => $this->formatDisplayValue($resource),
             'subtitle' => $resource->subtitle(),
-            'value' => $resource->getKey(),
+            'value' => safe_int($resource->getKey()),
         ]);
     }
 
     /**
      * Specify if the related resource can be viewed.
      *
-     * @param  bool  $value
      * @return $this
      */
-    public function viewable($value = true)
+    public function viewable(bool $value = true)
     {
         $this->viewable = $value;
 
@@ -336,10 +316,10 @@ class BelongsTo extends Field implements RelatableField
     /**
      * Specify a callback that should be run when the field is filled.
      *
-     * @param  \Closure  $callback
+     * @param  (callable(\Laravel\Nova\Http\Requests\NovaRequest, mixed):void)|null  $callback
      * @return $this
      */
-    public function filled($callback)
+    public function filled(?callable $callback)
     {
         $this->filledCallback = $callback;
 
@@ -347,12 +327,20 @@ class BelongsTo extends Field implements RelatableField
     }
 
     /**
+     * Set the value for the field.
+     */
+    public function setValue(mixed $value): void
+    {
+        $this->belongsToId = safe_int($value);
+        $this->value = $value;
+    }
+
+    /**
      * Set the attribute name of the inverse of the relationship.
      *
-     * @param  string  $inverse
      * @return $this
      */
-    public function inverse($inverse)
+    public function inverse(string $inverse)
     {
         $this->inverse = $inverse;
 
@@ -364,7 +352,7 @@ class BelongsTo extends Field implements RelatableField
      *
      * @return $this
      */
-    public function singularLabel($singularLabel)
+    public function singularLabel(Stringable|string $singularLabel)
     {
         $this->singularLabel = $singularLabel;
 
@@ -372,37 +360,104 @@ class BelongsTo extends Field implements RelatableField
     }
 
     /**
-     * hides the "With Trashed" option.
-     *
-     * @return $this
+     * Return the sortable uri key for the field.
      */
-    public function withoutTrashed()
+    #[\Override]
+    public function sortableUriKey(): string
     {
-        $this->displaysWithTrashed = false;
+        $request = app(NovaRequest::class);
 
-        return $this;
+        return $this->getRelationForeignKeyName($request->newResource()->resource->{$this->attribute}());
+    }
+
+    /**
+     * Make the field filter.
+     *
+     * @return \Laravel\Nova\Fields\Filters\Filter|null
+     */
+    protected function makeFilter(NovaRequest $request)
+    {
+        if (
+            \is_null($request->resource) || (
+                $request->viaRelationship()
+                && ($request->relationshipType ?? null) === 'hasMany'
+                && $this->resourceClass::uriKey() === $request->viaResource
+            )
+        ) {
+            return null;
+        }
+
+        return new BelongsToFilter($this, $request->resource);
+    }
+
+    /**
+     * Define filterable attribute.
+     */
+    protected function filterableAttribute(NovaRequest $request): string
+    {
+        return $this->getRelationForeignKeyName($request->newResource()->resource->{$this->attribute}());
+    }
+
+    /**
+     * Define the default filterable callback.
+     *
+     * @return callable(\Laravel\Nova\Http\Requests\NovaRequest, \Illuminate\Contracts\Database\Eloquent\Builder, mixed, string):void
+     */
+    protected function defaultFilterableCallback()
+    {
+        return function (NovaRequest $request, $query, $value, $attribute) {
+            $query->where($attribute, '=', $value);
+        };
+    }
+
+    /**
+     * Prepare the field for JSON serialization.
+     */
+    #[\Override]
+    public function serializeForFilter(): array
+    {
+        $label = $this->resourceClass::label();
+
+        return transform($this->jsonSerialize(), static fn ($field) => [
+            'attribute' => $field['attribute'],
+            'debounce' => $field['debounce'],
+            'displaysWithTrashed' => $field['displaysWithTrashed'],
+            'label' => $label,
+            'resourceName' => $field['resourceName'],
+            'searchable' => $field['searchable'],
+            'withSubtitles' => $field['withSubtitles'],
+            'uniqueKey' => $field['uniqueKey'],
+        ]);
     }
 
     /**
      * Prepare the field for JSON serialization.
      *
-     * @return array
+     * @return array<string, mixed>
      */
-    public function jsonSerialize()
+    #[\Override]
+    public function jsonSerialize(): array
     {
-        return array_merge([
-            'belongsToId' => $this->belongsToId,
-            'belongsToRelationship' => $this->belongsToRelationship,
-            'debounce' => $this->debounce,
-            'displaysWithTrashed' => $this->displaysWithTrashed,
-            'label' => forward_static_call([$this->resourceClass, 'label']),
-            'resourceName' => $this->resourceName,
-            'reverse' => $this->isReverseRelation(app(NovaRequest::class)),
-            'searchable' => $this->searchable,
-            'withSubtitles' => $this->withSubtitles,
-            'showCreateRelationButton' => $this->createRelationShouldBeShown(app(NovaRequest::class)),
-            'singularLabel' => $this->singularLabel,
-            'viewable' => $this->viewable,
-        ], parent::jsonSerialize());
+        return with(app(NovaRequest::class), function ($request) {
+            $viewable = ! \is_null($this->viewable) ? $this->viewable : $this->resourceClass::authorizedToViewAny($request);
+
+            return array_merge([
+                'belongsToId' => $this->belongsToId,
+                'relationshipType' => $this->relationshipType(),
+                'belongsToRelationship' => $this->belongsToRelationship,
+                'debounce' => $this->debounce,
+                'displaysWithTrashed' => $this->displaysWithTrashed,
+                'label' => $this->resourceClass::label(),
+                'peekable' => $this->isPeekable($request),
+                'hasFieldsToPeekAt' => $this->hasFieldsToPeekAt($request),
+                'resourceName' => $this->resourceName,
+                'reverse' => $this->isReverseRelation($request),
+                'searchable' => $this->isSearchable($request),
+                'withSubtitles' => $this->withSubtitles,
+                'showCreateRelationButton' => $this->createRelationShouldBeShown($request),
+                'singularLabel' => $this->singularLabel,
+                'viewable' => $viewable,
+            ], parent::jsonSerialize());
+        });
     }
 }

@@ -2,8 +2,16 @@
 
 namespace Laravel\Nova\Fields;
 
-class Heading extends Field
+use Laravel\Nova\Http\Requests\NovaRequest;
+
+/**
+ * @method static static make(\Stringable|string $name, string|null $attribute = null, callable|null $resolveCallback = null)
+ */
+class Heading extends Field implements Unfillable
 {
+    use AsHTML;
+    use SupportsDependentFields;
+
     /**
      * The field's component.
      *
@@ -14,27 +22,33 @@ class Heading extends Field
     /**
      * Create a new field.
      *
-     * @param  string  $name
-     * @param  string|null  $attribute
-     * @param  mixed|null  $resolveCallback
-     * @return void
+     * @param  \Stringable|string  $name
+     * @param  string|callable|null  $attribute
+     * @param  (callable(mixed, mixed, ?string):(mixed))|null  $resolveCallback
      */
-    public function __construct($name, $attribute = null, $resolveCallback = null)
+    public function __construct($name, mixed $attribute = null, ?callable $resolveCallback = null)
     {
-        parent::__construct(null, $attribute, $resolveCallback);
+        parent::__construct($name, $attribute, $resolveCallback);
 
         $this->withMeta(['value' => $name]);
         $this->hideFromIndex();
-        $this->withMeta(['asHtml' => false]);
     }
 
     /**
-     * Display the field as raw HTML using Vue.
+     * Prepare the element for JSON serialization.
      *
-     * @return $this
+     * @return array<string, mixed>
      */
-    public function asHtml()
+    #[\Override]
+    public function jsonSerialize(): array
     {
-        return $this->withMeta(['asHtml' => true]);
+        $request = app(NovaRequest::class);
+
+        $displayedAs = $this->serializeDisplayedValueAsHtml($request);
+
+        return array_merge(parent::jsonSerialize(), [
+            'asHtml' => $this->asHtml,
+            'displayedAs' => $displayedAs,
+        ]);
     }
 }

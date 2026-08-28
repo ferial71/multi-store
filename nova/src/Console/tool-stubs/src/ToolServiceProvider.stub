@@ -12,13 +12,9 @@ class ToolServiceProvider extends ServiceProvider
 {
     /**
      * Bootstrap any application services.
-     *
-     * @return void
      */
-    public function boot()
+    public function boot(): void
     {
-        $this->loadViewsFrom(__DIR__.'/../resources/views', '{{ component }}');
-
         $this->app->booted(function () {
             $this->routes();
         });
@@ -30,26 +26,25 @@ class ToolServiceProvider extends ServiceProvider
 
     /**
      * Register the tool's routes.
-     *
-     * @return void
      */
-    protected function routes()
+    protected function routes(): void
     {
         if ($this->app->routesAreCached()) {
             return;
         }
 
-        Route::middleware(['nova', Authorize::class])
-                ->prefix('nova-vendor/{{ name }}')
-                ->group(__DIR__.'/../routes/api.php');
+        Nova::router(['nova', 'nova.auth', Authorize::class], '{{ name }}')
+            ->group(__DIR__.'/../routes/inertia.php');
+
+        Route::middleware(['nova', 'nova.auth', Authorize::class])
+            ->prefix('nova-vendor/{{ name }}')
+            ->group(__DIR__.'/../routes/api.php');
     }
 
     /**
      * Register any application services.
-     *
-     * @return void
      */
-    public function register()
+    public function register(): void
     {
         //
     }

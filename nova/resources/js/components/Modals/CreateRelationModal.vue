@@ -1,44 +1,45 @@
 <template>
-  <modal
+  <Modal
     dusk="new-relation-modal"
-    tabindex="-1"
-    role="dialog"
-    @modal-close="handleClose"
-    :classWhitelist="[
-      'flatpickr-current-month',
-      'flatpickr-next-month',
-      'flatpickr-prev-month',
-      'flatpickr-weekday',
-      'flatpickr-weekdays',
-      'flatpickr-calendar',
-      'form-file-input',
-    ]"
+    :show="show"
+    @close-via-escape="handlePreventModalAbandonmentOnClose"
+    :size="size"
+    :use-focus-trap="!loading"
   >
     <div
-      class="bg-40 rounded-lg shadow-lg overflow-hidden p-8"
-      style="width: 800px"
+      class="bg-gray-100 dark:bg-gray-700 rounded-lg shadow-lg overflow-hidden p-8"
     >
-      <Create
-        mode="modal"
-        @refresh="handleRefresh"
-        @cancelled-create="handleCancelledCreate"
+      <CreateResource
         :resource-name="resourceName"
+        @create-cancelled="handleCreateCancelled"
+        @finished-loading="$nextTick(() => (loading = false))"
+        @refresh="handleRefresh"
+        mode="modal"
         resource-id=""
-        via-resource=""
-        via-resource-id=""
         via-relationship=""
+        via-resource-id=""
+        via-resource=""
       />
     </div>
-  </modal>
+  </Modal>
 </template>
 
 <script>
-import Create from '@/views/Create'
+import { PreventsModalAbandonment } from '@/mixins'
+import CreateResource from '@/views/Create'
 
 export default {
-  components: { Create },
+  emits: ['set-resource', 'create-cancelled'],
+
+  mixins: [PreventsModalAbandonment],
+
+  components: {
+    CreateResource,
+  },
 
   props: {
+    show: { type: Boolean, default: false },
+    size: { type: String, default: '2xl' },
     resourceName: {},
     resourceId: {},
     viaResource: {},
@@ -46,21 +47,28 @@ export default {
     viaRelationship: {},
   },
 
+  data: () => ({
+    loading: true,
+  }),
+
   methods: {
     handleRefresh(data) {
-      // alert('wew refreshing')
       this.$emit('set-resource', data)
     },
 
-    handleCancelledCreate() {
-      return this.$emit('cancelled-create')
+    handleCreateCancelled() {
+      return this.$emit('create-cancelled')
     },
 
-    /**
-     * Close the modal.
-     */
-    handleClose() {
-      this.$emit('cancelled-create')
+    handlePreventModalAbandonmentOnClose(event) {
+      this.handlePreventModalAbandonment(
+        () => {
+          this.handleCreateCancelled()
+        },
+        () => {
+          event.stopPropagation()
+        }
+      )
     },
   },
 }

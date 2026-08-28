@@ -1,86 +1,108 @@
 <template>
-  <modal @modal-close="handleClose">
+  <Modal :show="show" role="alertdialog" size="sm">
     <form
       @submit.prevent="handleConfirm"
-      slot-scope="props"
-      class="bg-white rounded-lg shadow-lg overflow-hidden"
-      style="width: 460px"
+      class="mx-auto bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden"
     >
-      <slot :uppercaseMode="uppercaseMode" :mode="mode">
-        <div class="p-8">
-          <heading :level="2" class="mb-6">{{
-            __(uppercaseMode + ' Resource')
-          }}</heading>
-          <p class="text-80 leading-normal">
+      <slot name="header">
+        <ModalHeader v-text="modalTitle" />
+      </slot>
+      <slot name="content">
+        <ModalContent>
+          <p class="leading-normal">
             {{
               __(
                 'Are you sure you want to ' + mode + ' the selected resources?'
               )
             }}
           </p>
-        </div>
+        </ModalContent>
       </slot>
 
-      <div class="bg-30 px-6 py-3 flex">
+      <ModalFooter>
         <div class="ml-auto">
-          <button
-            type="button"
-            data-testid="cancel-button"
-            dusk="cancel-delete-button"
+          <Button
+            variant="link"
+            state="mellow"
             @click.prevent="handleClose"
-            class="btn text-80 font-normal h-9 px-3 mr-3 btn-link"
+            class="mr-3"
+            dusk="cancel-delete-button"
           >
             {{ __('Cancel') }}
-          </button>
+          </Button>
 
-          <button
-            id="confirm-delete-button"
-            ref="confirmButton"
-            data-testid="confirm-button"
+          <Button
             type="submit"
-            class="btn btn-default btn-danger"
-          >
-            {{ __(uppercaseMode) }}
-          </button>
+            ref="confirmButton"
+            dusk="confirm-delete-button"
+            :loading="working"
+            state="danger"
+            :label="__(uppercaseMode)"
+          />
         </div>
-      </div>
+      </ModalFooter>
     </form>
-  </modal>
+  </Modal>
 </template>
 
-<script>
-export default {
-  props: {
-    mode: {
-      type: String,
-      default: 'delete',
-      validator: function (value) {
-        return ['force delete', 'delete', 'detach'].indexOf(value) !== -1
-      },
-    },
+<script setup>
+import { mapProps } from '@/mixins'
+import { Button } from 'laravel-nova-ui'
+import { computed, ref, watch } from 'vue'
+import { useLocalization } from '@/composables/useLocalization'
+import { useResourceInformation } from '@/composables/useResourceInformation'
+import isNull from 'lodash/isNull'
+import startCase from 'lodash/startCase'
+
+const emitter = defineEmits(['confirm', 'close'])
+
+const { __ } = useLocalization()
+const { resourceInformation } = useResourceInformation()
+
+const working = ref(false)
+
+const props = defineProps({
+  show: { type: Boolean, default: false },
+
+  mode: {
+    type: String,
+    default: 'delete',
+    validator: v => ['force delete', 'delete', 'detach'].includes(v),
   },
 
-  methods: {
-    handleClose() {
-      this.$emit('close')
-    },
+  ...mapProps(['resourceName']),
+})
 
-    handleConfirm() {
-      this.$emit('confirm')
-    },
-  },
+watch(
+  () => props.show,
+  showing => {
+    if (showing === false) {
+      working.value = false
+    }
+  }
+)
 
-  /**
-   * Mount the component.
-   */
-  mounted() {
-    this.$refs.confirmButton.focus()
-  },
+const uppercaseMode = computed(() => startCase(props.mode))
 
-  computed: {
-    uppercaseMode() {
-      return _.startCase(this.mode)
-    },
-  },
+const modalTitle = computed(() => {
+  const resource = resourceInformation(props.resourceName)
+
+  if (isNull(resource)) {
+    return __(`${uppercaseMode.value} Resource`)
+  }
+
+  return __(`${uppercaseMode.value} :resource`, {
+    resource: resource.singularLabel,
+  })
+})
+
+function handleClose() {
+  emitter('close')
+  working.value = false
+}
+
+function handleConfirm() {
+  emitter('confirm')
+  working.value = true
 }
 </script>

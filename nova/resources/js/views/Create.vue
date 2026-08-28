@@ -1,22 +1,38 @@
 <template>
-  <create-form
+  <CreateForm
     @resource-created="handleResourceCreated"
-    @cancelled-create="handleCancelledCreate"
+    @resource-created-and-adding-another="handleResourceCreatedAndAddingAnother"
+    @create-cancelled="cancelCreatingResource"
     :mode="mode"
     :resource-name="resourceName"
     :via-resource="viaResource"
     :via-resource-id="viaResourceId"
     :via-relationship="viaRelationship"
-    :update-form-status="updateFormStatus"
-    :should-override-meta="mode == 'form' ? true : false"
+    @update-form-status="onUpdateFormStatus"
+    @finished-loading="$emit('finished-loading')"
+    :should-override-meta="mode === 'form'"
+    :form-unique-id="formUniqueId"
   />
 </template>
 
 <script>
-import { mapProps, PreventsFormAbandonment } from 'laravel-nova'
+import {
+  mapProps,
+  PreventsFormAbandonment,
+  PreventsModalAbandonment,
+} from '@/mixins'
+import { uid } from 'uid/single'
 
 export default {
-  mixins: [PreventsFormAbandonment],
+  emits: ['refresh', 'create-cancelled', 'finished-loading'],
+
+  mixins: [PreventsFormAbandonment, PreventsModalAbandonment],
+
+  provide() {
+    return {
+      removeFile: this.removeFile,
+    }
+  },
 
   props: {
     mode: {
@@ -33,23 +49,62 @@ export default {
     ]),
   },
 
+  data: () => ({
+    formUniqueId: uid(),
+  }),
+
   methods: {
     handleResourceCreated({ redirect, id }) {
-      this.canLeave = true
+      if (this.mode !== 'form') this.allowLeavingModal()
 
-      if (this.mode == 'form') {
-        return this.$router.push({ path: redirect })
+      Nova.$emit('resource-created', {
+        resourceName: this.resourceName,
+        resourceId: id,
+      })
+
+      if (this.mode === 'form') {
+        return Nova.visit(redirect)
       }
 
       return this.$emit('refresh', { redirect, id })
     },
 
-    handleCancelledCreate() {
-      if (this.mode == 'form') {
-        return this.$router.back()
+    handleResourceCreatedAndAddingAnother() {
+      this.disableNavigateBackUsingHistory()
+    },
+
+    cancelCreatingResource() {
+      if (this.mode === 'form') {
+        this.handleProceedingToPreviousPage()
+
+        this.proceedToPreviousPage(
+          this.isRelation
+            ? `/resources/${this.viaResource}/${this.viaResourceId}`
+            : `/resources/${this.resourceName}`
+        )
+
+        return
       }
 
-      return this.$emit('cancelled-create')
+      this.allowLeavingModal()
+      return this.$emit('create-cancelled')
+    },
+
+    /**
+     * Prevent accidental abandonment only if form was changed.
+     */
+    onUpdateFormStatus() {
+      if (this.mode !== 'form') this.updateModalStatus()
+    },
+
+    removeFile(attribute) {
+      //
+    },
+  },
+
+  computed: {
+    isRelation() {
+      return Boolean(this.viaResourceId && this.viaRelationship)
     },
   },
 }

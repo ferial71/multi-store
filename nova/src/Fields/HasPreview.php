@@ -7,21 +7,14 @@ trait HasPreview
     /**
      * The callback used to retrieve the preview URL.
      *
-     * @var callable
+     * @var (callable(mixed, ?string, mixed):(?string))|null
      */
     public $previewUrlCallback;
 
     /**
-     * The callback used to retrieve the thumbnail URL.
-     *
-     * @var callable
-     */
-    public $thumbnailUrlCallback;
-
-    /**
      * Specify the callback that should be used to retrieve the preview URL.
      *
-     * @param  callable  $previewUrlCallback
+     * @param  callable(mixed, ?string, mixed):?string  $previewUrlCallback
      * @return $this
      */
     public function preview(callable $previewUrlCallback)
@@ -33,11 +26,11 @@ trait HasPreview
 
     /**
      * Resolve the preview URL for the field.
-     *
-     * @return string|null
      */
-    public function resolvePreviewUrl()
+    public function resolvePreviewUrl(): ?string
     {
-        return call_user_func($this->previewUrlCallback, $this->value, $this->getStorageDisk(), $this->resource);
+        return \is_callable($this->previewUrlCallback)
+            ? \call_user_func($this->previewUrlCallback, $this->value, $this->getStorageDisk(), $this->resource)
+            : null;
     }
 }

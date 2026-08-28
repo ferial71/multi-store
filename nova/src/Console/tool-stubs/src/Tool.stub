@@ -2,6 +2,8 @@
 
 namespace {{ namespace }};
 
+use Illuminate\Http\Request;
+use Laravel\Nova\Menu\MenuSection;
 use Laravel\Nova\Nova;
 use Laravel\Nova\Tool;
 
@@ -9,22 +11,19 @@ class {{ class }} extends Tool
 {
     /**
      * Perform any tasks that need to happen when the tool is booted.
-     *
-     * @return void
      */
-    public function boot()
+    public function boot(): void
     {
-        Nova::script('{{ component }}', __DIR__.'/../dist/js/tool.js');
-        Nova::style('{{ component }}', __DIR__.'/../dist/css/tool.css');
+        Nova::mix('{{ component }}', __DIR__.'/../dist/mix-manifest.json');
     }
 
     /**
-     * Build the view that renders the navigation links for the tool.
-     *
-     * @return \Illuminate\View\View
+     * Build the menu that renders the navigation links for the tool.
      */
-    public function renderNavigation()
+    public function menu(Request $request): MenuSection
     {
-        return view('{{ component }}::navigation');
+        return MenuSection::make('{{ title }}')
+            ->path('/{{ name }}')
+            ->icon('server');
     }
 }

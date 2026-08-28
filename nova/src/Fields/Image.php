@@ -3,10 +3,15 @@
 namespace Laravel\Nova\Fields;
 
 use Illuminate\Support\Facades\Storage;
+use Laravel\Nova\Contracts\Cover;
 
-class Image extends File
+class Image extends File implements Cover
 {
     use PresentsImages;
+
+    public const ASPECT_AUTO = 'aspect-auto';
+
+    public const ASPECT_SQUARE = 'aspect-square';
 
     /**
      * Indicates if the element should be shown on the index view.
@@ -18,13 +23,11 @@ class Image extends File
     /**
      * Create a new field.
      *
-     * @param  string  $name
-     * @param  string|null  $attribute
-     * @param  string|null  $disk
-     * @param  callable|null  $storageCallback
-     * @return void
+     * @param  \Stringable|string  $name
+     * @param  string|callable|null  $attribute
+     * @param  (callable(\Illuminate\Http\Request, object, string, string, ?string, ?string):(mixed))|null  $storageCallback
      */
-    public function __construct($name, $attribute = null, $disk = 'public', $storageCallback = null)
+    public function __construct($name, mixed $attribute = null, ?string $disk = null, ?callable $storageCallback = null)
     {
         parent::__construct($name, $attribute, $disk, $storageCallback);
 
@@ -40,9 +43,10 @@ class Image extends File
     /**
      * Prepare the field element for JSON serialization.
      *
-     * @return array
+     * @return array<string, mixed>
      */
-    public function jsonSerialize()
+    #[\Override]
+    public function jsonSerialize(): array
     {
         return array_merge(parent::jsonSerialize(), $this->imageAttributes());
     }

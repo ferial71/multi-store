@@ -1,65 +1,95 @@
 <template>
-  <modal @modal-close="handleClose">
+  <Modal :show="show" size="sm">
     <form
       @submit.prevent="handleConfirm"
-      slot-scope="props"
-      class="bg-white rounded-lg shadow-lg overflow-hidden"
+      class="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden"
       style="width: 460px"
     >
-      <slot>
-        <div class="p-8">
-          <heading :level="2" class="mb-6">{{
-            __('Restore Resource')
-          }}</heading>
-          <p class="text-80 leading-normal">
+      <slot name="header">
+        <ModalHeader v-text="modalTitle" />
+      </slot>
+      <slot name="content">
+        <ModalContent>
+          <p class="leading-normal">
             {{ __('Are you sure you want to restore the selected resources?') }}
           </p>
-        </div>
+        </ModalContent>
       </slot>
 
-      <div class="bg-30 px-6 py-3 flex">
+      <ModalFooter>
         <div class="ml-auto">
-          <button
-            type="button"
-            data-testid="cancel-button"
+          <Button
+            variant="link"
+            state="mellow"
             @click.prevent="handleClose"
-            class="btn text-80 font-normal h-9 px-3 mr-3 btn-link"
+            class="mr-3"
+            dusk="cancel-restore-button"
           >
             {{ __('Cancel') }}
-          </button>
+          </Button>
 
-          <button
-            ref="confirmButton"
-            id="confirm-restore-button"
-            data-testid="confirm-button"
+          <Button
             type="submit"
-            class="btn btn-default btn-primary"
+            ref="confirmButton"
+            dusk="confirm-restore-button"
+            :loading="working"
           >
             {{ __('Restore') }}
-          </button>
+          </Button>
         </div>
-      </div>
+      </ModalFooter>
     </form>
-  </modal>
+  </Modal>
 </template>
 
-<script>
-export default {
-  methods: {
-    handleClose() {
-      this.$emit('close')
-    },
+<script setup>
+import { mapProps } from '@/mixins'
+import { Button } from 'laravel-nova-ui'
+import { computed, ref, watch } from 'vue'
+import { useLocalization } from '@/composables/useLocalization'
+import { useResourceInformation } from '@/composables/useResourceInformation'
+import isNull from 'lodash/isNull'
 
-    handleConfirm() {
-      this.$emit('confirm')
-    },
-  },
+const { __ } = useLocalization()
+const { resourceInformation } = useResourceInformation()
 
-  /**
-   * Mount the component.
-   */
-  mounted() {
-    this.$refs.confirmButton.focus()
-  },
+const emitter = defineEmits(['confirm', 'close'])
+
+const working = ref(false)
+
+const props = defineProps({
+  ...mapProps(['resourceName']),
+  show: { type: Boolean, default: false },
+})
+
+watch(
+  () => props.show,
+  showing => {
+    if (showing === false) {
+      working.value = false
+    }
+  }
+)
+
+const modalTitle = computed(() => {
+  const resource = resourceInformation(props.resourceName)
+
+  if (isNull(resource)) {
+    return __('Restore Resource')
+  }
+
+  return __('Restore :resource', {
+    resource: resource.singularLabel,
+  })
+})
+
+function handleClose() {
+  emitter('close')
+  working.value = false
+}
+
+function handleConfirm() {
+  emitter('confirm')
+  working.value = true
 }
 </script>

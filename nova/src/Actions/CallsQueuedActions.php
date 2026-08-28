@@ -2,58 +2,66 @@
 
 namespace Laravel\Nova\Actions;
 
+use Illuminate\Bus\Batchable;
+use Illuminate\Bus\Queueable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Laravel\Nova\Fields\ActionFields;
 use Laravel\Nova\Nova;
 
+/**
+ * @internal
+ */
 trait CallsQueuedActions
 {
-    use InteractsWithQueue, SerializesModels;
+    use Batchable;
+    use InteractsWithQueue;
+    use Queueable;
+    use SerializesModels;
 
     /**
      * The action class name.
-     *
-     * @var \Laravel\Nova\Actions\Action
      */
-    public $action;
+    public Action $action;
 
     /**
      * The method that should be called on the action.
-     *
-     * @var string
      */
-    public $method;
+    public string $method;
 
     /**
      * The resolved fields.
-     *
-     * @var \Laravel\Nova\Fields\ActionFields
      */
-    public $fields;
+    public ActionFields $fields;
 
     /**
      * The batch ID of the action event records.
-     *
-     * @var string
      */
-    public $batchId;
+    public string $actionBatchId;
 
     /**
      * Call the action using the given callback.
      *
-     * @param  callable  $callback
-     * @return void
+     * @param  callable(\Laravel\Nova\Actions\Action):void  $callback
      */
-    protected function callAction($callback)
+    protected function callAction(callable $callback): void
     {
-        Nova::actionEvent()->markBatchAsRunning($this->batchId);
+        Nova::usingActionEvent(function ($actionEvent) {
+            if (! $this->action->withoutActionEvents) {
+                $actionEvent->markBatchAsRunning($this->actionBatchId);
+            }
+        });
 
         $action = $this->setJobInstanceIfNecessary($this->action);
 
         $callback($action);
 
         if (! $this->job->hasFailed() && ! $this->job->isReleased()) {
-            Nova::actionEvent()->markBatchAsFinished($this->batchId);
+            Nova::usingActionEvent(function ($actionEvent) {
+                if (! $this->action->withoutActionEvents) {
+                    $actionEvent->markBatchAsFinished($this->actionBatchId);
+                }
+            });
         }
     }
 
@@ -65,7 +73,7 @@ trait CallsQueuedActions
      */
     protected function setJobInstanceIfNecessary($instance)
     {
-        if (in_array(InteractsWithQueue::class, class_uses_recursive(get_class($instance)))) {
+        if (\in_array(InteractsWithQueue::class, class_uses_recursive($instance::class))) {
             $instance->setJob($this->job);
         }
 
@@ -74,11 +82,9 @@ trait CallsQueuedActions
 
     /**
      * Get the display name for the queued job.
-     *
-     * @return string
      */
-    public function displayName()
+    public function displayName(): string
     {
-        return get_class($this->action);
+        return $this->action::class;
     }
 }

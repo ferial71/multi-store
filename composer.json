@@ -8,27 +8,24 @@
     ],
     "license": "MIT",
     "require": {
-        "php": "^7.3|^8.0",
-        "fideloper/proxy": "^4.4",
-        "fruitcake/laravel-cors": "^2.0",
-        "guzzlehttp/guzzle": "^7.0.1",
-        "hardevine/shoppingcart": "^2.9",
-        "inertiajs/inertia-laravel": "^0.3.5",
-        "laravel/framework": "^8.12",
-        "laravel/jetstream": "^2.1",
-        "laravel/nova": "*",
-        "laravel/sanctum": "^2.6",
-        "laravel/tinker": "^2.5",
-        "laravel/ui": "^3.2",
-        "tightenco/ziggy": "^1.0"
+        "php": "^8.3",
+        "guzzlehttp/guzzle": "^7.8",
+        "hardevine/shoppingcart": "^3.4",
+        "inertiajs/inertia-laravel": "^2.0",
+        "laravel/framework": "^13.0",
+        "laravel/jetstream": "^5.0",
+        "laravel/nova": "^5.8",
+        "laravel/sanctum": "^4.0",
+        "laravel/tinker": "^3.0",
+        "tightenco/ziggy": "^2.0"
     },
     "require-dev": {
-        "facade/ignition": "^2.5",
-        "fakerphp/faker": "^1.9.1",
-        "laravel/sail": "^1.0.1",
-        "mockery/mockery": "^1.4.2",
-        "nunomaduro/collision": "^5.0",
-        "phpunit/phpunit": "^9.3.3"
+        "fakerphp/faker": "^1.23",
+        "laravel/sail": "^1.30",
+        "mockery/mockery": "^1.6",
+        "nunomaduro/collision": "^8.0",
+        "phpunit/phpunit": "^11.0",
+        "spatie/laravel-ignition": "^2.4"
     },
     "config": {
         "optimize-autoloader": true,
@@ -71,6 +68,13 @@
         {
             "type": "path",
             "url": "./nova"
+        },
+        {
+            "type": "path",
+            "url": "./packages/shoppingcart",
+            "options": {
+                "symlink": true
+            }
         }
     ]
 }

@@ -9,14 +9,20 @@ class ActionMethod
     /**
      * Determine the appropriate "handle" method for the given models.
      *
-     * @param  \Laravel\Nova\Actions\Action  $action
      * @param  \Illuminate\Database\Eloquent\Model  $model
-     * @return string
      */
-    public static function determine(Action $action, $model)
+    public static function determine(Action $action, $model): string
     {
+        if (! \is_null($action->handleCallback)) {
+            return 'handleUsingCallback';
+        }
+
         $method = 'handleFor'.Str::plural(class_basename($model));
 
-        return method_exists($action, $method) ? $method : 'handle';
+        if (method_exists($action, $method)) {
+            return $method;
+        }
+
+        return 'handle';
     }
 }

@@ -6,12 +6,21 @@ use Laravel\Nova\Http\Requests\NovaRequest;
 
 class Code extends Field
 {
+    use SupportsDependentFields;
+
     /**
      * The field's component.
      *
      * @var string
      */
     public $component = 'code-field';
+
+    /**
+     * Indicates if the element should be shown on the index view.
+     *
+     * @var bool
+     */
+    public $showOnIndex = false;
 
     /**
      * Indicates if the field is used to manipulate JSON.
@@ -25,14 +34,7 @@ class Code extends Field
      *
      * @var int|null
      */
-    public $jsonOptions;
-
-    /**
-     * Indicates if the element should be shown on the index view.
-     *
-     * @var bool
-     */
-    public $showOnIndex = false;
+    public $jsonOptions = null;
 
     /**
      * Indicates the visual height of the Code editor.
@@ -44,11 +46,10 @@ class Code extends Field
     /**
      * Resolve the given attribute from the given resource.
      *
-     * @param  mixed  $resource
-     * @param  string  $attribute
-     * @return mixed
+     * @param  \Laravel\Nova\Resource|\Illuminate\Database\Eloquent\Model|object  $resource
      */
-    protected function resolveAttribute($resource, $attribute)
+    #[\Override]
+    protected function resolveAttribute($resource, string $attribute): mixed
     {
         $value = parent::resolveAttribute($resource, $attribute);
 
@@ -62,28 +63,24 @@ class Code extends Field
     /**
      * Hydrate the given attribute on the model based on the incoming request.
      *
-     * @param  \Laravel\Nova\Http\Requests\NovaRequest  $request
-     * @param  string  $requestAttribute
-     * @param  object  $model
-     * @param  string  $attribute
-     * @return void
+     * @param  \Illuminate\Database\Eloquent\Model|\Laravel\Nova\Support\Fluent  $model
      */
-    protected function fillAttributeFromRequest(NovaRequest $request, $requestAttribute, $model, $attribute)
+    #[\Override]
+    protected function fillAttributeFromRequest(NovaRequest $request, string $requestAttribute, object $model, string $attribute): void
     {
         if ($request->exists($requestAttribute)) {
             $model->{$attribute} = $this->json
-                        ? json_decode($request[$requestAttribute], true)
-                        : $request[$requestAttribute];
+                ? json_decode($request[$requestAttribute], true)
+                : $request[$requestAttribute];
         }
     }
 
     /**
      * Indicate that the code field is used to manipulate JSON.
      *
-     * @param  int|null  $options
      * @return $this
      */
-    public function json($options = null)
+    public function json(?int $options = null)
     {
         $this->json = true;
 
@@ -95,10 +92,9 @@ class Code extends Field
     /**
      * Define the language syntax highlighting mode for the field.
      *
-     * @param  string  $language
      * @return $this
      */
-    public function language($language)
+    public function language(string $language)
     {
         return $this->options(['mode' => $language]);
     }
@@ -130,10 +126,9 @@ class Code extends Field
     /**
      * Set the visual height of the Code editor.
      *
-     * @param string|int $height
      * @return $this
      */
-    public function height($height)
+    public function height(string|int $height)
     {
         $this->height = $height;
 
@@ -143,10 +138,9 @@ class Code extends Field
     /**
      * Set configuration options for the code editor instance.
      *
-     * @param  array  $options
      * @return $this
      */
-    public function options($options)
+    public function options(array $options)
     {
         $currentOptions = $this->meta['options'] ?? [];
 
@@ -158,9 +152,10 @@ class Code extends Field
     /**
      * Prepare the field for JSON serialization.
      *
-     * @return array
+     * @return array<string, mixed>
      */
-    public function jsonSerialize()
+    #[\Override]
+    public function jsonSerialize(): array
     {
         return array_merge(parent::jsonSerialize(), [
             'height' => $this->height,

@@ -10,28 +10,30 @@ class ForceDeleteResourceRequest extends DeletionRequest
     /**
      * Get the selected models for the action in chunks.
      *
-     * @param  int  $count
-     * @param  \Closure  $callback
-     * @return mixed
+     * @param  \Closure(\Illuminate\Support\Collection):void  $callback
      */
-    public function chunks($count, Closure $callback)
+    public function chunks(int $count, Closure $callback): void
     {
-        return $this->chunkWithAuthorization($count, $callback, function ($models) {
+        $this->chunkWithAuthorization($count, $callback, function ($models) {
             return $this->deletableModels($models);
         });
     }
 
     /**
      * Get the models that may be deleted.
-     *
-     * @param  \Illuminate\Support\Collection  $models
-     * @return \Illuminate\Support\Collection
      */
-    protected function deletableModels(Collection $models)
+    protected function deletableModels(Collection $models): Collection
     {
         return $models->mapInto($this->resource())
-                        ->filter
-                        ->authorizedToForceDelete($this)
-                        ->map->model();
+            ->filter->authorizedToForceDelete($this)
+            ->map->model();
+    }
+
+    /**
+     * Determine if the request is for a single resource only.
+     */
+    public function isForSingleResource(): bool
+    {
+        return $this->resources !== 'all' && \count($this->resources) == 1;
     }
 }

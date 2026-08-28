@@ -1,112 +1,113 @@
 <template>
-  <div>
-    <div
-      v-if="actions.length > 0 || availablePivotActions.length > 0"
-      class="flex items-center mr-3"
-    >
-      <select
-        data-testid="action-select"
-        dusk="action-select"
-        ref="selectBox"
-        v-model="selectedActionKey"
-        class="form-control form-select mr-2"
-      >
-        <option value="" disabled selected>{{ __('Select Action') }}</option>
+  <SelectControl
+    v-if="actionSelectionOptions.length > 0"
+    v-bind="$attrs"
+    ref="actionSelectControl"
+    v-model="actionSelectionInput"
+    :options="actionSelectionOptions"
+    size="xs"
+    :class="{ 'max-w-[6rem]': width === 'auto', 'w-full': width === 'full' }"
+    dusk="action-select"
+    :aria-label="__('Select Action')"
+  >
+    <option value="" disabled selected>{{ __('Actions') }}</option>
+  </SelectControl>
 
-        <optgroup
-          v-if="actions.length > 0"
-          :label="resourceInformation.singularLabel"
-        >
-          <option
-            v-for="action in actions"
-            :value="action.uriKey"
-            :key="action.urikey"
-            :selected="action.uriKey == selectedActionKey"
-          >
-            {{ action.name }}
-          </option>
-        </optgroup>
+  <!-- Confirm Action Modal -->
+  <component
+    class="text-left"
+    v-if="actionModalVisible"
+    :show="actionModalVisible"
+    :is="selectedAction?.component"
+    :working="working"
+    :selected-resources="selectedResources"
+    :resource-name="resourceName"
+    :action="selectedAction"
+    :errors="errors"
+    @confirm="executeAction"
+    @close="closeConfirmationModal"
+  />
 
-        <optgroup
-          class="pivot-option-group"
-          :label="pivotName"
-          v-if="availablePivotActions.length > 0"
-        >
-          <option
-            v-for="action in availablePivotActions"
-            :value="action.uriKey"
-            :key="action.urikey"
-            :selected="action.uriKey == selectedActionKey"
-          >
-            {{ action.name }}
-          </option>
-        </optgroup>
-      </select>
-
-      <button
-        data-testid="action-confirm"
-        dusk="run-action-button"
-        @click.prevent="determineActionStrategy"
-        :disabled="!selectedAction"
-        class="btn btn-default btn-primary flex items-center justify-center px-3"
-        :class="{ 'btn-disabled': !selectedAction }"
-        :title="__('Run Action')"
-      >
-        <icon type="play" class="text-white" style="margin-left: 7px" />
-      </button>
-    </div>
-
-    <!-- Action Confirmation Modal -->
-    <portal to="modals" transition="fade-transition">
-      <component
-        v-if="confirmActionModalOpened"
-        class="text-left"
-        :is="selectedAction.component"
-        :working="working"
-        :selected-resources="selectedResources"
-        :resource-name="resourceName"
-        :action="selectedAction"
-        :errors="errors"
-        @confirm="executeAction"
-        @close="closeConfirmationModal"
-      />
-    </portal>
-  </div>
+  <component
+    v-if="responseModalVisible"
+    :show="responseModalVisible"
+    :is="actionModalReponseData?.component"
+    @confirm="closeResponseModal"
+    @close="closeResponseModal"
+    :data="actionModalReponseData?.payload ?? {}"
+  />
 </template>
 
-<script>
-import _ from 'lodash'
-import HandlesActions from '@/mixins/HandlesActions'
-import { Errors, InteractsWithResourceInformation } from 'laravel-nova'
+<script setup>
+import { useActions } from '@/composables/useActions'
+import { computed, nextTick, ref, watch } from 'vue'
+import { useStore } from 'vuex'
 
-export default {
-  mixins: [InteractsWithResourceInformation, HandlesActions],
+const emitter = defineEmits(['actionExecuted'])
 
-  props: {
-    selectedResources: {
-      type: [Array, String],
-      default: () => [],
-    },
-    pivotActions: {},
-    pivotName: String,
+const props = defineProps({
+  width: { type: String, default: 'auto' },
+  pivotName: { type: String, default: null },
+
+  resourceName: {},
+  viaResource: {},
+  viaResourceId: {},
+  viaRelationship: {},
+  relationshipType: {},
+  pivotActions: {
+    type: Object,
+    default: () => ({ name: 'Pivot', actions: [] }),
   },
+  actions: { type: Array, default: [] },
+  selectedResources: { type: [Array, String], default: () => [] },
+  endpoint: { type: String, default: null },
+  triggerDuskAttribute: { type: String, default: null },
+})
 
-  watch: {
-    /**
-     * Watch the actions property for changes.
-     */
-    actions() {
-      this.selectedActionKey = ''
-      this.initializeActionFields()
-    },
+const actionSelectionInput = ref('')
 
-    /**
-     * Watch the pivot actions property for changes.
-     */
-    pivotActions() {
-      this.selectedActionKey = ''
-      this.initializeActionFields()
-    },
-  },
-}
+const store = useStore()
+
+const {
+  errors,
+  actionModalVisible,
+  responseModalVisible,
+  openConfirmationModal,
+  closeConfirmationModal,
+  closeResponseModal,
+  handleActionClick,
+  selectedAction,
+  setSelectedActionKey,
+  determineActionStrategy,
+  working,
+  executeAction,
+  availableActions,
+  availablePivotActions,
+  actionModalReponseData,
+} = useActions(props, emitter, store)
+
+watch(actionSelectionInput, value => {
+  if (value == '') {
+    return
+  }
+
+  setSelectedActionKey(value)
+  determineActionStrategy()
+
+  nextTick(() => (actionSelectionInput.value = ''))
+})
+
+const actionSelectionOptions = computed(() => [
+  ...availableActions.value.map(a => ({
+    value: a.uriKey,
+    label: a.name,
+    disabled: a.authorizedToRun === false,
+  })),
+  ...availablePivotActions.value.map(a => ({
+    group: props.pivotName,
+    value: a.uriKey,
+    label: a.name,
+    disabled: a.authorizedToRun === false,
+  })),
+])
 </script>

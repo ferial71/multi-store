@@ -2,30 +2,18 @@
 
 namespace Laravel\Nova\Http\Controllers;
 
+use Illuminate\Http\JsonResponse;
 use Illuminate\Routing\Controller;
 use Laravel\Nova\Http\Requests\ResourceDetailRequest;
+use Laravel\Nova\Http\Resources\DetailViewResource;
 
 class ResourceShowController extends Controller
 {
     /**
      * Display the resource for administration.
-     *
-     * @param  \Laravel\Nova\Http\Requests\ResourceDetailRequest  $request
-     * @return \Illuminate\Http\Response
      */
-    public function handle(ResourceDetailRequest $request)
+    public function __invoke(ResourceDetailRequest $request): JsonResponse
     {
-        $resource = $request->newResourceWith(tap($request->findModelQuery(), function ($query) use ($request) {
-            $resource = $request->resource();
-            $resource::detailQuery($request, $query);
-        })->firstOrFail());
-
-        $resource->authorizeToView($request);
-
-        return response()->json([
-            'title' => $resource->title(),
-            'panels' => $resource->availablePanelsForDetail($request, $resource),
-            'resource' => $resource->serializeForDetail($request, $resource),
-        ]);
+        return DetailViewResource::make()->toResponse($request);
     }
 }

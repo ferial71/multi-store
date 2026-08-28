@@ -18,14 +18,13 @@ class VaporImage extends VaporFile
     /**
      * Create a new field.
      *
-     * @param  string  $name
-     * @param  string  $attribute
-     * @param  callable|null  $storageCallback
-     * @return void
+     * @param  \Stringable|string  $name
+     * @param  string|callable|null  $attribute
+     * @param  (callable(\Laravel\Nova\Http\Requests\NovaRequest, object, string, string, ?string, ?string):(mixed))|null  $storageCallback
      */
-    public function __construct($name, $attribute = null, $storageCallback = null)
+    public function __construct($name, mixed $attribute = null, ?callable $storageCallback = null)
     {
-        parent::__construct($name, $attribute);
+        parent::__construct($name, $attribute, $storageCallback);
 
         $this->acceptedTypes('image/*');
 
@@ -39,9 +38,10 @@ class VaporImage extends VaporFile
     /**
      * Prepare the field element for JSON serialization.
      *
-     * @return array
+     * @return array<string, mixed>
      */
-    public function jsonSerialize()
+    #[\Override]
+    public function jsonSerialize(): array
     {
         return array_merge(parent::jsonSerialize(), $this->imageAttributes());
     }

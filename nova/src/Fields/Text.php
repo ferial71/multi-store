@@ -2,10 +2,21 @@
 
 namespace Laravel\Nova\Fields;
 
+use Illuminate\Support\Arr;
+use Laravel\Nova\Contracts\FilterableField;
+use Laravel\Nova\Fields\Filters\TextFilter;
 use Laravel\Nova\Http\Requests\NovaRequest;
 
-class Text extends Field
+class Text extends Field implements FilterableField
 {
+    use AsHTML;
+    use Copyable;
+    use FieldFilterable;
+    use HasSuggestions;
+    use SupportsAutoCompletion;
+    use SupportsDependentFields;
+    use SupportsMaxlength;
+
     /**
      * The field's component.
      *
@@ -14,65 +25,61 @@ class Text extends Field
     public $component = 'text-field';
 
     /**
-     * The field's suggestions callback.
+     * Make the field filter.
      *
-     * @var array|callable
+     * @return \Laravel\Nova\Fields\Filters\Filter
      */
-    public $suggestions;
-
-    /**
-     * Set the callback or array to be used to determine the field's suggestions list.
-     *
-     * @param  array|callable  $suggestions
-     * @return $this
-     */
-    public function suggestions($suggestions)
+    protected function makeFilter(NovaRequest $request)
     {
-        $this->suggestions = $suggestions;
-
-        return $this;
+        return new TextFilter($this);
     }
 
     /**
-     * Resolve the display suggestions for the field.
-     *
-     * @param  \Laravel\Nova\Http\Requests\NovaRequest  $request
-     * @return array
+     * Prepare the field for JSON serialization.
      */
-    public function resolveSuggestions(NovaRequest $request)
+    public function serializeForFilter(): array
     {
-        if (is_callable($this->suggestions)) {
-            return call_user_func($this->suggestions, $request) ?? null;
-        }
+        return transform($this->jsonSerialize(), function ($field) {
+            $field['suggestions'] = $field['suggestions'] ?? $this->resolveSuggestions(app(NovaRequest::class));
 
-        return $this->suggestions;
-    }
-
-    /**
-     * Display the field as raw HTML using Vue.
-     *
-     * @return $this
-     */
-    public function asHtml()
-    {
-        return $this->withMeta(['asHtml' => true]);
+            return Arr::only($field, [
+                'uniqueKey',
+                'name',
+                'attribute',
+                'suggestions',
+                'type',
+                'min',
+                'max',
+                'step',
+                'pattern',
+                'placeholder',
+                'extraAttributes',
+            ]);
+        });
     }
 
     /**
      * Prepare the element for JSON serialization.
      *
-     * @return array
+     * @return array<string, mixed>
      */
-    public function jsonSerialize()
+    #[\Override]
+    public function jsonSerialize(): array
     {
         $request = app(NovaRequest::class);
 
-        if ($request->isCreateOrAttachRequest() || $request->isUpdateOrUpdateAttachedRequest()) {
+        if ($request->isFormRequest()) {
             return array_merge(parent::jsonSerialize(), [
                 'suggestions' => $this->resolveSuggestions($request),
             ]);
         }
 
-        return parent::jsonSerialize();
+        $displayedAs = $this->serializeDisplayedValueAsHtml($request);
+
+        return array_merge(parent::jsonSerialize(), [
+            'asHtml' => $this->asHtml,
+            'displayedAs' => $displayedAs,
+            'copyable' => $this->copyable,
+        ]);
     }
 }

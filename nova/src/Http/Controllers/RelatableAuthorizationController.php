@@ -9,24 +9,20 @@ class RelatableAuthorizationController extends Controller
 {
     /**
      * Get the relatable authorization status for the resource.
-     *
-     * @param  \Laravel\Nova\Http\Requests\NovaRequest  $request
-     * @return \Illuminate\Http\Response
      */
-    public function show(NovaRequest $request)
+    public function __invoke(NovaRequest $request): array
     {
-        $model = $request->findParentModelOrFail();
+        $parentResource = $request->findParentResourceOrFail();
+        $resourceClass = $request->resource();
 
-        $resource = $request->viaResource();
-
-        if (in_array($request->relationshipType, ['belongsToMany', 'morphToMany'])) {
-            return ['authorized' => (new $resource($model))->authorizedToAttachAny(
+        if ($request->viaManyToMany()) {
+            return ['authorized' => $parentResource->authorizedToAttachAny(
                 $request, $request->model()
             )];
         }
 
-        return ['authorized' => (new $resource($model))->authorizedToAdd(
+        return ['authorized' => $parentResource->authorizedToAdd(
             $request, $request->model()
-        )];
+        ) && $resourceClass::authorizedToCreate($request)];
     }
 }

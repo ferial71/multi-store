@@ -3,16 +3,23 @@
 namespace Laravel\Nova\Fields;
 
 use Illuminate\Support\Arr;
-use Laravel\Nova\Makeable;
 
-class Line extends Text
+class Line extends Text implements Unfillable
 {
-    use Makeable;
+    public const HEADING = 'extra-large';
 
-    const HEADING = 'extra-large';
-    const BASE = 'large';
-    const SUBTITLE = 'medium';
-    const SMALL = 'small';
+    public const BASE = 'large';
+
+    public const SUBTITLE = 'medium';
+
+    public const SMALL = 'small';
+
+    /**
+     * The line's component.
+     *
+     * @var string
+     */
+    public $component = 'line-field';
 
     /**
      * The type for the line field.
@@ -24,25 +31,18 @@ class Line extends Text
     /**
      * Extra CSS classes to apply to the line.
      *
-     * @var mixed
+     * @var array|string
      */
     public $extraClasses = '';
 
     /**
-     * The line's component.
-     *
-     * @var string
-     */
-    public $component = 'line-field';
-
-    /**
      * CSS class lookup table for lines.
      *
-     * @var array
+     * @var array<string, string>
      */
     public static $classes = [
         self::HEADING => 'text-base font-semibold',
-        self::BASE => 'text-base',
+        self::BASE => 'text-sm',
         self::SUBTITLE => 'text-xs tracking-loose font-bold uppercase text-80',
         self::SMALL => 'text-xs',
     ];
@@ -50,12 +50,11 @@ class Line extends Text
     /**
      * Create a new field.
      *
-     * @param  string  $name
+     * @param  \Stringable|string  $name
      * @param  string|callable|null  $attribute
-     * @param  callable|null  $resolveCallback
-     * @return void
+     * @param  (callable(mixed, mixed, ?string):(mixed))|null  $resolveCallback
      */
-    public function __construct($name, $attribute = null, callable $resolveCallback = null)
+    public function __construct($name, mixed $attribute = null, ?callable $resolveCallback = null)
     {
         parent::__construct($name, $attribute, $resolveCallback);
 
@@ -113,10 +112,9 @@ class Line extends Text
     /**
      * Set the extra CSS classes to be applied to the line field.
      *
-     * @param mixed $classes
      * @return $this
      */
-    public function extraClasses($classes)
+    public function extraClasses(array|string $classes)
     {
         $this->extraClasses = $classes;
 
@@ -126,7 +124,7 @@ class Line extends Text
     /**
      * Get the display classes for the line.
      *
-     * @return array
+     * @return array<string, string>
      */
     public function getClasses()
     {
@@ -139,9 +137,9 @@ class Line extends Text
     /**
      * Prepare the line for JSON serialization.
      *
-     * @return array
+     * @return array<string, mixed>
      */
-    public function jsonSerialize()
+    public function jsonSerialize(): array
     {
         return array_merge(parent::jsonSerialize(), [
             'classes' => $this->getClasses(),

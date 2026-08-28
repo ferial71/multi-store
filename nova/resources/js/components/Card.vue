@@ -1,3 +1,7 @@
 <template>
-  <div class="card"><slot /></div>
+  <div
+    class="relative overflow-hidden bg-white dark:bg-gray-800 rounded-lg shadow"
+  >
+    <slot />
+  </div>
 </template>

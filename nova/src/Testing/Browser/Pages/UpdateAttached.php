@@ -2,76 +2,128 @@
 
 namespace Laravel\Nova\Testing\Browser\Pages;
 
+use Illuminate\Database\Eloquent\Model;
 use Laravel\Dusk\Browser;
 
 class UpdateAttached extends Page
 {
-    public $resourceName;
-    public $resourceId;
-    public $relation;
-    public $relatedId;
+    /**
+     * The Resource ID.
+     *
+     * @var \Illuminate\Database\Eloquent\Model|string|int
+     */
+    public mixed $resourceId;
+
+    /**
+     * The Related ID.
+     *
+     * @var \Illuminate\Database\Eloquent\Model|string|int
+     */
+    public mixed $relatedId;
 
     /**
      * Create a new page instance.
      *
-     * @param  string  $resourceName
-     * @param  string  $resourceId
-     * @param  string  $relation
-     * @param  string  $relatedId
-     * @return void
+     * @param  \Illuminate\Database\Eloquent\Model|string|int  $resourceId
+     * @param  \Illuminate\Database\Eloquent\Model|string|int  $relatedId
      */
-    public function __construct($resourceName, $resourceId, $relation, $relatedId)
-    {
-        $this->relation = $relation;
-        $this->relatedId = $relatedId;
-        $this->resourceId = $resourceId;
-        $this->resourceName = $resourceName;
+    public function __construct(
+        public string $resourceName,
+        mixed $resourceId,
+        public string $relation,
+        mixed $relatedId,
+        public ?string $viaRelationship = null,
+        public ?string $viaPivotId = null
+    ) {
+        $this->relatedId = $relatedId instanceof Model ? $relatedId->getKey() : $relatedId;
+        $this->resourceId = $resourceId instanceof Model ? $resourceId->getKey() : $resourceId;
+
+        $this->setNovaPage("/resources/{$this->resourceName}/{$this->resourceId}/edit-attached/{$this->relation}/{$this->relatedId}");
+    }
+
+    /**
+     * Create a new page instance for Belongs-to-Many.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model|string|int  $resourceId
+     * @param  \Illuminate\Database\Eloquent\Model|string|int  $relatedId
+     * @return static
+     */
+    public static function belongsToMany(
+        string $resourceName,
+        mixed $resourceId,
+        string $relation,
+        mixed $relatedId,
+        ?string $viaRelationship = null,
+        ?string $viaPivotId = null
+    ) {
+        return new static($resourceName, $resourceId, $relation, $relatedId, $viaRelationship, $viaPivotId);
+    }
+
+    /**
+     * Create a new page instance for Morph-to-Many.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model|string|int  $resourceId
+     * @param  \Illuminate\Database\Eloquent\Model|string|int  $relatedId
+     * @return static
+     */
+    public static function morphToMany(
+        string $resourceName,
+        mixed $resourceId,
+        string $relation,
+        mixed $relatedId,
+        ?string $viaRelationship = null,
+        ?string $viaPivotId = null
+    ) {
+        return new static($resourceName, $resourceId, $relation, $relatedId, $viaRelationship, $viaPivotId);
     }
 
     /**
      * Get the URL for the page.
-     *
-     * @return string
      */
-    public function url()
+    public function url(): string
     {
-        return '/nova/resources/'.$this->resourceName.'/'.$this->resourceId.'/edit-attached/'.$this->relation.'/'.$this->relatedId.'?viaRelationship='.$this->relation;
+        return $this->novaPageUrl.'?'.http_build_query(array_filter([
+            'viaRelationship' => $this->viaRelationship ?? $this->relation,
+            'viaPivotId' => $this->viaPivotId,
+        ]));
     }
 
     /**
      * Click the update button.
      */
-    public function update(Browser $browser)
+    public function update(Browser $browser): void
     {
-        $browser->click('@update-button')->pause(750);
+        $browser->dismissToasted()
+            ->click('@update-button')
+            ->pause(750);
     }
 
     /**
      * Click the update and continue editing button.
      */
-    public function updateAndContinueEditing(Browser $browser)
+    public function updateAndContinueEditing(Browser $browser): void
     {
-        $browser->click('@update-and-continue-editing-button')->pause(750);
+        $browser->dismissToasted()
+            ->click('@update-and-continue-editing-button')
+            ->pause(750);
+    }
+
+    /**
+     * Click the cancel button.
+     */
+    public function cancel(Browser $browser): void
+    {
+        $browser->dismissToasted()
+            ->click('@cancel-update-attached-button');
     }
 
     /**
      * Assert that the browser is on the page.
      *
-     * @param  Browser  $browser
-     * @return void
+     * @throws \Facebook\WebDriver\Exception\TimeOutException
      */
-    public function assert(Browser $browser)
+    public function assert(Browser $browser): void
     {
-        $browser->pause(500);
-    }
-
-    /**
-     * Get the element shortcuts for the page.
-     *
-     * @return array
-     */
-    public function elements()
-    {
-        return [];
+        $browser->assertOk()->waitFor('@nova-form');
     }
 }

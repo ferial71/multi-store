@@ -2,41 +2,20 @@
 
 namespace Laravel\Nova\Http\Controllers;
 
+use Illuminate\Http\Response;
 use Illuminate\Routing\Controller;
-use Illuminate\Support\Facades\DB;
-use Laravel\Nova\Actions\Actionable;
 use Laravel\Nova\Http\Requests\ForceDeleteLensResourceRequest;
-use Laravel\Nova\Nova;
+use Laravel\Nova\Jobs\ForceDeleteResources;
 
 class LensResourceForceDeleteController extends Controller
 {
-    use DeletesFields;
-
     /**
      * Force delete the given resource(s).
-     *
-     * @param  \Laravel\Nova\Http\Requests\ForceDeleteLensResourceRequest  $request
-     * @return \Illuminate\Http\Response
      */
-    public function handle(ForceDeleteLensResourceRequest $request)
+    public function __invoke(ForceDeleteLensResourceRequest $request): Response
     {
-        $request->chunks(150, function ($models) use ($request) {
-            $models->each(function ($model) use ($request) {
-                $this->forceDeleteFields($request, $model);
+        ForceDeleteResources::dispatchSync($request);
 
-                if (in_array(Actionable::class, class_uses_recursive($model))) {
-                    $model->actions()->delete();
-                }
-
-                $model->forceDelete();
-
-                tap(Nova::actionEvent(), function ($actionEvent) use ($model, $request) {
-                    DB::connection($actionEvent->getConnectionName())->table('action_events')->insert(
-                        $actionEvent->forResourceDelete($request->user(), collect([$model]))
-                            ->map->getAttributes()->all()
-                    );
-                });
-            });
-        });
+        return response()->noContent(200);
     }
 }

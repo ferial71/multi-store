@@ -2,6 +2,12 @@
 
 namespace Laravel\Nova\Fields;
 
+use Illuminate\Support\Collection;
+use Laravel\Nova\Http\Requests\NovaRequest;
+
+/**
+ * @method static static make(\Stringable|string $name, string|array|null $attribute = null, array $lines = [])
+ */
 class Stack extends Field
 {
     /**
@@ -14,95 +20,111 @@ class Stack extends Field
     /**
      * Indicates if the element should be shown on the creation view.
      *
-     * @var \Closure|bool
+     * @var (callable(\Laravel\Nova\Http\Requests\NovaRequest):(bool))|bool
      */
     public $showOnCreation = false;
 
     /**
      * Indicates if the element should be shown on the update view.
      *
-     * @var \Closure|bool
+     * @var (callable(\Laravel\Nova\Http\Requests\NovaRequest, mixed):(bool))|bool
      */
     public $showOnUpdate = false;
 
     /**
      * The contents of the Stack field.
-     *
-     * @var array
      */
-    public $lines;
+    public Collection $lines;
 
     /**
      * Create a new Stack field.
      *
-     * @param  string  $name
-     * @param  string|array|null $attribute
-     * @param  array $lines
-     * @return void
+     * @param  \Stringable|string  $name
+     * @param  string|array<int, class-string<\Laravel\Nova\Fields\Field>|callable>|null  $attribute
+     * @param  iterable<int, class-string<\Laravel\Nova\Fields\Field>|callable>  $lines
      */
-    public function __construct($name, $attribute = null, $lines = [])
+    public function __construct($name, mixed $attribute = null, iterable $lines = [])
     {
-        if (is_array($attribute)) {
+        if (\is_array($attribute)) {
             $lines = $attribute;
             $attribute = null;
         }
 
         parent::__construct($name, $attribute);
 
-        $this->lines = $lines;
+        $this->lines = Collection::make($lines);
     }
 
     /**
      * Resolve the field's value for display.
      *
-     * @param  mixed  $resource
-     * @param  string|null  $attribute
-     * @return void
+     * @param  \Laravel\Nova\Resource|\Illuminate\Database\Eloquent\Model|object  $resource
      */
-    public function resolveForDisplay($resource, $attribute = null)
+    #[\Override]
+    public function resolveForDisplay($resource, ?string $attribute = null): void
     {
         $this->prepareLines($resource, $attribute);
     }
 
     /**
-     * Prepare the stack for JSON serialization.
-     *
-     * @return array
-     */
-    public function jsonSerialize()
-    {
-        return array_merge(parent::jsonSerialize(), [
-            'lines' => $this->lines->all(),
-        ]);
-    }
-
-    /**
      * Prepare each line for serialization.
      *
-     * @param  mixed  $resource
-     * @param string $attribute
-     * @return void
+     * @param  \Laravel\Nova\Resource|\Illuminate\Database\Eloquent\Model|object  $resource
      */
-    public function prepareLines($resource, $attribute = null)
+    public function prepareLines($resource, ?string $attribute = null): void
     {
         $this->ensureLinesAreResolveable();
 
-        $this->lines->each->resolveForDisplay($resource, $attribute);
+        $request = app(NovaRequest::class);
+
+        $this->lines = $this->lines->filter(static function ($field) use ($request, $resource) {
+            if (! $field->authorizedToSee($request)) {
+                return false;
+            }
+
+            /** @var \Laravel\Nova\Fields\Field $field */
+            if ($request->isResourceIndexRequest()) {
+                return $field->isShownOnIndex($request, $resource);
+            }
+
+            return $field->isShownOnDetail($request, $resource);
+        })
+            ->values()
+            ->each->resolveForDisplay($resource, $attribute);
+    }
+
+    /**
+     * Get field lines.
+     */
+    public function fields(): Collection
+    {
+        return $this->lines->whereInstanceOf(Field::class);
     }
 
     /**
      * Ensure that each line for the field is resolvable.
-     *
-     * @return void
      */
-    protected function ensureLinesAreResolveable()
+    protected function ensureLinesAreResolveable(): void
     {
-        $this->lines = collect($this->lines)->map(function ($line) {
-            if (is_callable($line)) {
+        $this->lines = $this->lines->map(static function ($line) {
+            if (\is_callable($line)) {
                 return Line::make('Anonymous', $line);
             }
 
             return $line;
         });
+    }
+
+    /**
+     * Prepare the stack for JSON serialization.
+     *
+     * @return array<string, mixed>
+     */
+    #[\Override]
+    public function jsonSerialize(): array
+    {
+        return array_merge(parent::jsonSerialize(), [
+            'lines' => $this->lines->all(),
+        ]);
     }
 }

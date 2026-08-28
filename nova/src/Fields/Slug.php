@@ -3,9 +3,10 @@
 namespace Laravel\Nova\Fields;
 
 use Illuminate\Support\Str;
+use Laravel\Nova\Contracts\Previewable;
 use Laravel\Nova\Http\Requests\NovaRequest;
 
-class Slug extends Field
+class Slug extends Field implements Previewable
 {
     /**
      * The field's component.
@@ -17,10 +18,9 @@ class Slug extends Field
     /**
      * The field the slug should be generated from.
      *
-     * @param string $from
-     * @return string
+     * @var \Laravel\Nova\Fields\Field|string|null
      */
-    public $from;
+    public $from = null;
 
     /**
      * The separator to use for the slug.
@@ -32,19 +32,18 @@ class Slug extends Field
     /**
      * Whether to show the field's customize button.
      *
-     * @var string
+     * @var bool
      */
     public $showCustomizeButton = false;
 
     /**
      * Create a new field.
      *
-     * @param  string  $name
-     * @param  string|callable|null  $attribute
-     * @param  callable|null  $resolveCallback
-     * @return void
+     * @param  \Stringable|string  $name
+     * @param  string|callable|object|null  $attribute
+     * @param  (callable(mixed, mixed, ?string):(mixed))|null  $resolveCallback
      */
-    public function __construct($name, $attribute = null, callable $resolveCallback = null)
+    public function __construct($name, mixed $attribute = null, ?callable $resolveCallback = null)
     {
         parent::__construct($name, $attribute, $resolveCallback);
     }
@@ -52,10 +51,9 @@ class Slug extends Field
     /**
      * The field the slug should be generated from.
      *
-     * @param string $from
      * @return $this
      */
-    public function from($from)
+    public function from(Field|string $from)
     {
         $this->from = $from;
 
@@ -65,10 +63,9 @@ class Slug extends Field
     /**
      * Set the separator used for slugifying the field.
      *
-     * @param string $separator
      * @return $this
      */
-    public function separator($separator)
+    public function separator(string $separator)
     {
         $this->separator = $separator;
 
@@ -76,22 +73,42 @@ class Slug extends Field
     }
 
     /**
+     * Return a preview for the given field value.
+     *
+     * @param  string  $value
+     * @return string
+     */
+    public function previewFor($value)
+    {
+        return Str::slug($value, $this->separator);
+    }
+
+    /**
      * Prepare the element for JSON serialization.
      *
-     * @return array
+     * @return array<string, mixed>
      */
-    public function jsonSerialize()
+    #[\Override]
+    public function jsonSerialize(): array
     {
         $request = app(NovaRequest::class);
 
-        if ($request->isUpdateOrUpdateAttachedRequest()) {
-            $this->readonly();
+        $field = parent::jsonSerialize();
+
+        $from = match (true) {
+            $this->from instanceof Field => $this->from->attribute,
+            ! empty($this->from) => str_replace(' ', '_', Str::lower((string) $this->from)),
+            default => null,
+        };
+
+        if (! \is_null($from) && $field['readonly'] === false && $request->isUpdateOrUpdateAttachedRequest()) {
+            $this->immutable();
             $this->showCustomizeButton = true;
         }
 
         return array_merge([
-            'updating' => $request->isUpdateOrUpdateAttachedRequest(),
-            'from' => Str::lower($this->from),
+            'shouldListenToFromChanges' => ! \is_null($from) && ! $request->isUpdateOrUpdateAttachedRequest(),
+            'slugFrom' => $from,
             'separator' => $this->separator,
             'showCustomizeButton' => $this->showCustomizeButton,
         ], parent::jsonSerialize());

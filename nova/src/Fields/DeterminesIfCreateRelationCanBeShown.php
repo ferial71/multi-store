@@ -9,17 +9,24 @@ trait DeterminesIfCreateRelationCanBeShown
     /**
      * The callback used to determine if the create relation button should be shown.
      *
-     * @var bool|\Laravel\Nova\Fields\Closure
+     * @var (callable(\Laravel\Nova\Http\Requests\NovaRequest):(bool))|bool
      */
     public $showCreateRelationButtonCallback;
 
     /**
+     * Indicates the size the create relation modal should be.
+     *
+     * @var string
+     */
+    public $modalSize = '2xl';
+
+    /**
      * Set the callback used to determine if the field is required.
      *
-     * @param  Closure|bool  $callback
+     * @param  (callable(\Laravel\Nova\Http\Requests\NovaRequest):(bool))|bool  $callback
      * @return $this
      */
-    public function showCreateRelationButton($callback = true)
+    public function showCreateRelationButton(callable|bool $callback = true)
     {
         $this->showCreateRelationButtonCallback = $callback;
 
@@ -39,14 +46,22 @@ trait DeterminesIfCreateRelationCanBeShown
     }
 
     /**
-     * Determine if Nova should show the edit pivot relation button.
-     * @param  \Laravel\Nova\Http\Requests\NovaRequest  $request
-     * @return bool
+     * Set the size used for the create relation modal.
+     *
+     * @return $this
      */
-    public function createRelationShouldBeShown(NovaRequest $request)
+    public function modalSize(string $size)
     {
-        return with($this->showCreateRelationButtonCallback, function ($callback) use ($request) {
-            if ($callback === true || (is_callable($callback) && call_user_func($callback, $request))) {
+        return $this->withMeta(['modalSize' => $size]);
+    }
+
+    /**
+     * Determine if Nova should show the edit pivot relation button.
+     */
+    public function createRelationShouldBeShown(NovaRequest $request): bool
+    {
+        return with($this->showCreateRelationButtonCallback, static function ($callback) use ($request) {
+            if ($callback === true || (\is_callable($callback) && \call_user_func($callback, $request))) {
                 return true;
             }
 

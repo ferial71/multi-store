@@ -2,24 +2,36 @@
 
 namespace Laravel\Nova\Http\Controllers;
 
+use Illuminate\Http\JsonResponse;
 use Illuminate\Routing\Controller;
-use Laravel\Nova\Http\Requests\NovaRequest;
+use Laravel\Nova\Http\Requests\ResourceCreateOrAttachRequest;
+use Laravel\Nova\Http\Resources\CreationPivotFieldResource;
 
 class CreationPivotFieldController extends Controller
 {
     /**
      * List the pivot fields for the given resource and relation.
-     *
-     * @param  \Laravel\Nova\Http\Requests\NovaRequest  $request
-     * @return \Illuminate\Http\Response
      */
-    public function index(NovaRequest $request)
+    public function __invoke(ResourceCreateOrAttachRequest $request): JsonResponse
     {
+        return CreationPivotFieldResource::make()->toResponse($request);
+    }
+
+    /**
+     * Synchronize the pivot field for creation.
+     */
+    public function sync(ResourceCreateOrAttachRequest $request): JsonResponse
+    {
+        $resource = CreationPivotFieldResource::make()->newResourceWith($request);
+
         return response()->json(
-            $request->newResource()->creationPivotFields(
-                $request,
-                $request->relatedResource
-            )->all()
+            $resource->creationPivotFields(
+                $request, $request->relatedResource
+            )->filter(static function ($field) use ($request) {
+                return $request->query('field') === $field->attribute &&
+                        $request->query('component') === $field->dependentComponentKey();
+            })->applyDependsOn($request)
+            ->first()
         );
     }
 }

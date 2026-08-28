@@ -11,20 +11,21 @@ class Transaction
     /**
      * Perform the given callbacks within a batch transaction.
      *
-     * @param  callable  $callback
-     * @param  callable|null  $finished
-     * @return mixed
+     * @param  callable(string):mixed  $callback
+     * @param  (callable(string):(void))|null  $finished
+     *
+     * @throws \Throwable
      */
-    public static function run($callback, $finished = null)
+    public static function run(callable $callback, ?callable $finished = null): mixed
     {
         try {
             DB::beginTransaction();
 
-            $batchId = (string) Str::orderedUuid();
+            $actionBatchId = (string) Str::orderedUuid();
 
-            return tap($callback($batchId), function ($response) use ($finished, $batchId) {
+            return tap(\call_user_func($callback, $actionBatchId), static function ($response) use ($finished, $actionBatchId) {
                 if ($finished) {
-                    $finished($batchId);
+                    \call_user_func($finished, $actionBatchId);
                 }
 
                 DB::commit();

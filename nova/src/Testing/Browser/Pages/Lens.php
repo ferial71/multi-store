@@ -6,39 +6,34 @@ use Laravel\Dusk\Browser;
 
 class Lens extends Index
 {
-    public $lens;
-
     /**
      * Create a new page instance.
      *
-     * @param  string  $resourceName
-     * @param  string  $lens
-     * @return void
+     * @param  array<string, mixed>  $queryParams
      */
-    public function __construct($resourceName, $lens)
-    {
-        $this->lens = $lens;
-        $this->resourceName = $resourceName;
-    }
-
-    /**
-     * Get the URL for the page.
-     *
-     * @return string
-     */
-    public function url()
-    {
-        return '/nova/resources/'.$this->resourceName.'/lens/'.$this->lens;
+    public function __construct(
+        public string $resourceName,
+        public string $lens,
+        array $queryParams = []
+    ) {
+        $this->setNovaPage("/resources/{$this->resourceName}/lens/{$this->lens}", $queryParams);
     }
 
     /**
      * Assert that the browser is on the page.
-     *
-     * @param  Browser  $browser
-     * @return void
      */
-    public function assert(Browser $browser)
+    public function assert(Browser $browser): void
     {
-        //
+        $browser->assertOk()->waitFor('@nova-resource-lens');
+    }
+
+    /**
+     * Get the element shortcuts for the page.
+     */
+    public function elements(): array
+    {
+        return [
+            '@nova-resource-lens' => '[dusk="'.$this->lens.'-lens-component"]',
+        ];
     }
 }

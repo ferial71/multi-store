@@ -1,68 +1,134 @@
 <template>
-  <select v-bind="$attrs" :value="value" v-on="inputListeners">
-    <slot />
-    <template v-for="(options, group) in groupedOptions">
-      <optgroup :label="group" v-if="group">
-        <option v-for="option in options" v-bind="attrsFor(option)">
-          {{ labelFor(option) }}
-        </option>
-      </optgroup>
-      <template v-else>
-        <option v-for="option in options" v-bind="attrsFor(option)">
-          {{ labelFor(option) }}
-        </option>
+  <div class="flex relative" :class="$attrs.class">
+    <select
+      v-bind="defaultAttributes"
+      :value="modelValue"
+      @change="handleChange"
+      class="w-full block form-control form-control-bordered form-input"
+      ref="selectControl"
+      :disabled="disabled"
+      :class="{
+        'h-8 text-xs': size === 'sm',
+        'h-7 text-xs': size === 'xs',
+        'h-6 text-xs': size === 'xxs',
+        'form-control-bordered-error': hasError,
+        'form-input-disabled': disabled,
+      }"
+      :data-disabled="disabled ? 'true' : null"
+    >
+      <slot />
+      <template v-for="(options, group) in groupedOptions">
+        <optgroup :label="group" v-if="group" :key="group">
+          <option
+            v-bind="attrsFor(option)"
+            v-for="option in options"
+            :key="option.value"
+            :selected="isSelected(option)"
+            :disabled="isDisabled(option)"
+          >
+            {{ labelFor(option) }}
+          </option>
+        </optgroup>
+        <template v-else>
+          <option
+            v-bind="attrsFor(option)"
+            v-for="option in options"
+            :key="option.value"
+            :selected="isSelected(option)"
+            :disabled="isDisabled(option)"
+          >
+            {{ labelFor(option) }}
+          </option>
+        </template>
       </template>
-    </template>
-  </select>
+    </select>
+
+    <span
+      class="pointer-events-none absolute inset-y-0 right-[11px] flex items-center"
+    >
+      <IconArrow />
+    </span>
+  </div>
 </template>
 
-<script>
-export default {
-  props: {
-    options: {
-      default: [],
-    },
-    selected: {},
-    label: {
-      default: 'label',
-    },
-    value: {},
-  },
+<script setup>
+import { computed, onBeforeMount, useAttrs, useTemplateRef } from 'vue'
+import groupBy from 'lodash/groupBy'
+import omit from 'lodash/omit'
 
-  computed: {
-    groupedOptions() {
-      return _.groupBy(this.options, option => option.group || '')
-    },
+defineOptions({
+  inheritAttrs: false,
+})
 
-    inputListeners() {
-      return _.assign({}, this.$listeners, {
-        change: event => {
-          this.$emit('input', event.target.value)
-          this.$emit('change', event)
-        },
-        input: event => {
-          this.$emit('input', event.target.value)
-        },
-      })
-    },
-  },
-  methods: {
-    labelFor(option) {
-      return this.label instanceof Function
-        ? this.label(option)
-        : option[this.label]
-    },
+const emitter = defineEmits(['selected'])
 
-    attrsFor(option) {
-      return _.assign(
-        {},
-        option.attrs || {},
-        { value: option.value },
-        this.selected !== void 0
-          ? { selected: this.selected == option.value }
-          : {}
-      )
-    },
+const props = defineProps({
+  hasError: { type: Boolean, default: false },
+  label: { default: 'label' },
+  value: { default: null },
+  options: { type: Array, default: [] },
+  disabled: { type: Boolean, default: false },
+  size: {
+    type: String,
+    default: 'md',
+    validator: val => ['xxs', 'xs', 'sm', 'md'].includes(val),
   },
+})
+
+const modelValue = defineModel()
+
+const attrs = useAttrs()
+
+const selectControlRef = useTemplateRef('selectControl')
+
+onBeforeMount(() => {
+  if (modelValue.value == null && props.value != null) {
+    modelValue.value = props.value
+  }
+})
+
+const labelFor = option => {
+  return props.label instanceof Function
+    ? props.label(option)
+    : option[props.label]
 }
+
+const attrsFor = option => {
+  return {
+    ...(option.attrs || {}),
+    ...{ value: option.value },
+  }
+}
+
+const isSelected = option => {
+  return option.value == modelValue.value
+}
+
+const isDisabled = option => {
+  return option.disabled === true
+}
+
+const handleChange = event => {
+  let value = event.target.value
+
+  let selectedValue = props.options.find(
+    o => value === o.value || value === o.value.toString()
+  )
+
+  modelValue.value = selectedValue?.value ?? props.value
+  emitter('selected', selectedValue)
+}
+
+const resetSelection = () => {
+  selectControlRef.value.selectedIndex = 0
+}
+
+const defaultAttributes = computed(() => omit(attrs, ['class']))
+const groupedOptions = computed(() =>
+  groupBy(props.options, option => option.group || '')
+)
+
+defineExpose({
+  resetSelection,
+})
 </script>

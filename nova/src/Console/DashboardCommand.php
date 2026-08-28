@@ -4,9 +4,13 @@ namespace Laravel\Nova\Console;
 
 use Illuminate\Console\GeneratorCommand;
 use Illuminate\Support\Str;
+use Symfony\Component\Console\Attribute\AsCommand;
 
+#[AsCommand(name: 'nova:dashboard')]
 class DashboardCommand extends GeneratorCommand
 {
+    use ResolvesStubPath;
+
     /**
      * The name and signature of the console command.
      *
@@ -28,12 +32,8 @@ class DashboardCommand extends GeneratorCommand
      */
     protected $type = 'Dashboard';
 
-    /**
-     * Build the class with the given name.
-     *
-     * @param  string  $name
-     * @return string
-     */
+    /** {@inheritDoc} */
+    #[\Override]
     protected function buildClass($name)
     {
         $stub = parent::buildClass($name);
@@ -50,15 +50,15 @@ class DashboardCommand extends GeneratorCommand
      */
     protected function getStub()
     {
-        return realpath(__DIR__.'/stubs/dashboard.stub');
+        if ($this->argument('name') === 'Main') {
+            return $this->resolveStubPath('/stubs/nova/main-dashboard.stub');
+        }
+
+        return $this->resolveStubPath('/stubs/nova/dashboard.stub');
     }
 
-    /**
-     * Get the default namespace for the class.
-     *
-     * @param  string  $rootNamespace
-     * @return string
-     */
+    /** {@inheritDoc} */
+    #[\Override]
     protected function getDefaultNamespace($rootNamespace)
     {
         return $rootNamespace.'\Nova\Dashboards';

@@ -2,27 +2,69 @@
 
 namespace Laravel\Nova\Exceptions;
 
+use Closure;
 use Illuminate\Foundation\Exceptions\Handler as ExceptionHandler;
+use Inertia\Inertia;
 use Laravel\Nova\Nova;
+use Laravel\Nova\Util;
+use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
+use Throwable;
 
 class NovaExceptionHandler extends ExceptionHandler
 {
     /**
-     * Report or log an exception.
+     * Register the exception handling callbacks for the application.
      *
-     * @param  \Throwable  $e
-     * @return mixed
+     * Used only on Laravel 8 and above.
      *
-     * @throws \Throwable
+     * @return void
      */
-    public function report(\Throwable $e)
+    public function register()
     {
-        return with(Nova::$reportCallback, function ($handler) use ($e) {
-            if (is_callable($handler) || $handler instanceof Closure) {
-                return call_user_func($handler, $e);
+        with(Nova::$reportCallback, function ($handler) {
+            /** @var (callable(\Throwable):(void))|(\Closure(\Throwable):(void))|null $handler */
+            if ($handler instanceof Closure || \is_callable($handler)) {
+                $this->reportable(static function (Throwable $e) use ($handler) {
+                    \call_user_func($handler, $e);
+                })->stop();
             }
-
-            return parent::report($e);
         });
+    }
+
+    /** {@inheritDoc} */
+    #[\Override]
+    public function render($request, Throwable $e)
+    {
+        if (Util::isNovaRequest($request)) {
+            return $this->renderInertiaException($request, $this->prepareException($e));
+        }
+
+        return parent::render($request, $e);
+    }
+
+    /**
+     * Render Inertia Exception.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @param  \Symfony\Component\HttpKernel\Exception\HttpExceptionInterface|\Throwable  $e
+     * @return \Symfony\Component\HttpFoundation\Response
+     */
+    protected function renderInertiaException($request, $e)
+    {
+        $statusCode = $e instanceof HttpExceptionInterface ? $e->getStatusCode() : 500;
+
+        Inertia::setRootView('nova::layout');
+
+        if ($statusCode === 403) {
+            return Inertia::render('Nova.Error403')->toResponse($request)->setStatusCode($statusCode);
+        } elseif ($statusCode === 404) {
+            return Inertia::render('Nova.Error404')->toResponse($request)->setStatusCode($statusCode);
+        }
+
+        if ($request->inertia()) {
+            return Inertia::render('Nova.Error')->toResponse($request)->setStatusCode(500);
+        }
+
+        return parent::render($request, $e);
     }
 }

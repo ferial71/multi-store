@@ -3,9 +3,16 @@
 namespace Laravel\Nova\Console;
 
 use Illuminate\Console\GeneratorCommand;
+use Illuminate\Contracts\Console\PromptsForMissingInput;
+use Symfony\Component\Console\Attribute\AsCommand;
+use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
+use Symfony\Component\Console\Output\OutputInterface;
 
-class ActionCommand extends GeneratorCommand
+use function Laravel\Prompts\confirm;
+
+#[AsCommand(name: 'nova:action')]
+class ActionCommand extends GeneratorCommand implements PromptsForMissingInput
 {
     use ResolvesStubPath;
 
@@ -37,33 +44,52 @@ class ActionCommand extends GeneratorCommand
      */
     protected function getStub()
     {
+        $extension = $this->option('queued') ? 'queued.stub' : 'stub';
+
         if ($this->option('destructive')) {
-            return $this->resolveStubPath('/stubs/nova/destructive-action.stub');
+            return $this->resolveStubPath("/stubs/nova/destructive-action.{$extension}");
         }
 
-        return $this->resolveStubPath('/stubs/nova/action.stub');
+        return $this->resolveStubPath("/stubs/nova/action.{$extension}");
     }
 
-    /**
-     * Get the default namespace for the class.
-     *
-     * @param  string  $rootNamespace
-     * @return string
-     */
+    /** {@inheritDoc} */
+    #[\Override]
     protected function getDefaultNamespace($rootNamespace)
     {
         return $rootNamespace.'\Nova\Actions';
     }
 
     /**
-     * Get the console command options.
+     * Interact further with the user if they were prompted for missing arguments.
      *
-     * @return array
+     * @return void
      */
+    protected function afterPromptingForMissingArguments(InputInterface $input, OutputInterface $output)
+    {
+        if ($this->didReceiveOptions($input)) {
+            return;
+        }
+
+        $input->setOption('destructive', confirm(
+            label: 'Indicate that the action deletes / destroys resources?',
+            default: false,
+        ));
+
+        $input->setOption('queued', confirm(
+            label: 'Indicates the action should be queued?',
+            default: false,
+        ));
+    }
+
+    /** {@inheritDoc} */
+    #[\Override]
     protected function getOptions()
     {
+        /** @phpstan-ignore return.type */
         return [
             ['destructive', null, InputOption::VALUE_NONE, 'Indicate that the action deletes / destroys resources'],
+            ['queued', null, InputOption::VALUE_NONE, 'Indicates the action should be queued'],
         ];
     }
 }

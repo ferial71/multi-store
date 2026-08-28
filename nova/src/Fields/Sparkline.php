@@ -2,11 +2,12 @@
 
 namespace Laravel\Nova\Fields;
 
-use Closure;
 use Laravel\Nova\Http\Requests\NovaRequest;
 use Laravel\Nova\Metrics\Trend;
 
-class Sparkline extends Field
+use function Orchestra\Sidekick\is_safe_callable;
+
+class Sparkline extends Field implements Unfillable
 {
     /**
      * The field's component.
@@ -18,7 +19,7 @@ class Sparkline extends Field
     /**
      * The data used in the chart.
      *
-     * @var array|\Closure|\Laravel\Nova\Metrics\Trend
+     * @var array|(callable(\Laravel\Nova\Http\Requests\NovaRequest):(mixed))|\Laravel\Nova\Metrics\Trend
      */
     public $data = [];
 
@@ -32,24 +33,24 @@ class Sparkline extends Field
     /**
      * Indicates if the element should be shown on the creation view.
      *
-     * @var \Closure|bool
+     * @var (callable(\Laravel\Nova\Http\Requests\NovaRequest):(bool))|bool
      */
     public $showOnCreation = false;
 
     /**
      * Indicates if the element should be shown on the update view.
      *
-     * @var \Closure|bool
+     * @var (callable(\Laravel\Nova\Http\Requests\NovaRequest, mixed):(bool))|bool
      */
     public $showOnUpdate = false;
 
     /**
      * Set the data for the Spark Line.
      *
-     * @param  array|\Closure|\Laravel\Nova\Metrics\Trend  $data
+     * @param  \Laravel\Nova\Metrics\Trend|(callable(\Laravel\Nova\Http\Requests\NovaRequest):(mixed))|iterable  $data
      * @return $this
      */
-    public function data($data)
+    public function data(Trend|callable|iterable $data)
     {
         $this->data = $data;
 
@@ -59,8 +60,7 @@ class Sparkline extends Field
     /**
      * Get field data.
      *
-     * @param  \Laravel\Nova\Http\Requests\NovaRequest  $request
-     * @return array|mixed
+     * @return mixed
      */
     public function getData(NovaRequest $request)
     {
@@ -68,16 +68,16 @@ class Sparkline extends Field
             $ranges = $this->data->ranges();
             $defaultRange = array_key_first($ranges);
 
-            $result = $this->data->calculate(
-                $request->merge([
-                    'range' => $defaultRange,
-                    'resourceId' => $this->data->component,
-                ])
+            return array_values(
+                $this->data->calculate(
+                    $request->merge([
+                        'range' => $defaultRange,
+                        'resourceId' => $this->data->component,
+                    ])
+                )->trend ?? []
             );
-
-            return array_values($this->data->calculate($request)->trend ?? []);
-        } elseif ($this->data instanceof Closure) {
-            return call_user_func($this->data, $request);
+        } elseif (is_safe_callable($this->data)) {
+            return \call_user_func($this->data, $request);
         }
 
         return $this->data;
@@ -98,10 +98,9 @@ class Sparkline extends Field
     /**
      * Set the component height.
      *
-     * @param  int  $height
      * @return $this
      */
-    public function height($height)
+    public function height(int $height)
     {
         return $this->withMeta([
             __FUNCTION__ => $height,
@@ -111,10 +110,9 @@ class Sparkline extends Field
     /**
      * Set the component width.
      *
-     * @param  int  $width
      * @return $this
      */
-    public function width($width)
+    public function width(int $width)
     {
         return $this->withMeta([
             __FUNCTION__ => $width,
@@ -124,9 +122,10 @@ class Sparkline extends Field
     /**
      * Prepare the element for JSON serialization.
      *
-     * @return array
+     * @return array<string, mixed>
      */
-    public function jsonSerialize()
+    #[\Override]
+    public function jsonSerialize(): array
     {
         return array_merge(parent::jsonSerialize(), [
             'chartStyle' => $this->chartStyle,

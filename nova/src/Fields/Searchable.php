@@ -2,12 +2,18 @@
 
 namespace Laravel\Nova\Fields;
 
+use Laravel\Nova\Http\Requests\NovaRequest;
+
+use function Orchestra\Sidekick\is_safe_callable;
+
 trait Searchable
 {
+    use SupportsAutoCompletion;
+
     /**
      * Indicates if this relationship is searchable.
      *
-     * @var bool
+     * @var (callable(\Laravel\Nova\Http\Requests\NovaRequest):(bool))|bool
      */
     public $searchable = false;
 
@@ -28,11 +34,12 @@ trait Searchable
     /**
      * Specify if the relationship should be searchable.
      *
+     * @param  (callable(\Laravel\Nova\Http\Requests\NovaRequest):(bool))|bool  $searchable
      * @return $this
      */
-    public function searchable()
+    public function searchable(callable|bool $searchable = true)
     {
-        $this->searchable = true;
+        $this->searchable = $searchable;
 
         return $this;
     }
@@ -52,13 +59,24 @@ trait Searchable
     /**
      * Set the debounce period for use in searchable select inputs.
      *
-     * @param int $amount
      * @return $this
      */
-    public function debounce($amount)
+    public function debounce(int $amount)
     {
         $this->debounce = $amount;
 
         return $this;
+    }
+
+    /**
+     * Determine if current field are searchable.
+     */
+    public function isSearchable(NovaRequest $request): bool
+    {
+        if (is_safe_callable($this->searchable)) {
+            $this->searchable = \call_user_func($this->searchable, $request);
+        }
+
+        return $this->searchable;
     }
 }

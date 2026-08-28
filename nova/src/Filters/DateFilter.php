@@ -2,8 +2,6 @@
 
 namespace Laravel\Nova\Filters;
 
-use Illuminate\Http\Request;
-
 abstract class DateFilter extends Filter
 {
     /**
@@ -16,22 +14,13 @@ abstract class DateFilter extends Filter
     /**
      * Set the first day of the week.
      *
-     * @param  int  $day
      * @return $this
+     *
+     * @deprecated 5.6.0 Feature no longer supported.
      */
-    public function firstDayOfWeek($day)
+    #[\Deprecated('Feature no longer available', since: '5.6.0')]
+    public function firstDayOfWeek(int $day)
     {
         return $this->withMeta([__FUNCTION__ => $day]);
-    }
-
-    /**
-     * Get the filter's available options.
-     *
-     * @param  \Illuminate\Http\Request  $request
-     * @return array
-     */
-    public function options(Request $request)
-    {
-        //
     }
 }

@@ -6,87 +6,62 @@ use Laravel\Dusk\Browser;
 
 class Create extends Page
 {
-    use HasSearchableRelations;
-
-    public $resourceName;
+    use InteractsWithRelations;
 
     /**
      * Create a new page instance.
      *
-     * @param  string  $resourceName
-     * @return void
+     * @param  array<string, mixed>  $queryParams
      */
-    public function __construct($resourceName)
-    {
-        $this->resourceName = $resourceName;
-    }
-
-    /**
-     * Get the URL for the page.
-     *
-     * @return string
-     */
-    public function url()
-    {
-        return '/nova/resources/'.$this->resourceName.'/new';
-    }
-
-    /**
-     * Run the inline create relation.
-     */
-    public function runInlineCreate(Browser $browser, $uriKey, callable $fieldCallback)
-    {
-        $browser->click("@{$uriKey}-inline-create")->pause(500);
-
-        $browser->elsewhere('.modal', function ($browser) use ($fieldCallback) {
-            $fieldCallback($browser);
-
-            $browser->create()->pause(250);
-        });
+    public function __construct(
+        public string $resourceName,
+        array $queryParams = []
+    ) {
+        $this->setNovaPage("/resources/{$this->resourceName}/new", $queryParams);
     }
 
     /**
      * Click the create button.
      */
-    public function create(Browser $browser)
+    public function create(Browser $browser): void
     {
-        $browser->click('@create-button')->pause(500);
+        $browser->dismissToasted()
+            ->click('@create-button')
+            ->pause(1000);
     }
 
     /**
      * Click the create and add another button.
      */
-    public function createAndAddAnother(Browser $browser)
+    public function createAndAddAnother(Browser $browser): void
     {
-        $browser->click('@create-and-add-another-button')->pause(500);
+        $browser->dismissToasted()
+            ->click('@create-and-add-another-button')
+            ->pause(500);
+    }
+
+    /**
+     * Click the cancel button.
+     */
+    public function cancel(Browser $browser): void
+    {
+        $browser->dismissToasted()
+            ->click('@cancel-create-button');
     }
 
     /**
      * Assert that the browser is on the page.
-     *
-     * @param  Browser  $browser
-     * @return void
      */
-    public function assert(Browser $browser)
+    public function assert(Browser $browser): void
     {
-        $browser->pause(500);
+        $browser->assertOk()->waitFor('@nova-form');
     }
 
     /**
      * Assert that there are no search results.
      */
-    public function assertNoRelationSearchResults(Browser $browser, $resourceName)
+    public function assertNoRelationSearchResults(Browser $browser, string $resourceName): void
     {
-        $browser->assertMissing('@'.$resourceName.'-search-input-result-0');
-    }
-
-    /**
-     * Get the element shortcuts for the page.
-     *
-     * @return array
-     */
-    public function elements()
-    {
-        return [];
+        $browser->assertMissing("@{$resourceName}-search-input-result-0");
     }
 }

@@ -3,60 +3,90 @@
 namespace Laravel\Nova\Http\Controllers;
 
 use DateTime;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\Pivot;
+use Illuminate\Http\Response;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
+use Laravel\Nova\Actions\ActionEvent;
 use Laravel\Nova\Http\Requests\NovaRequest;
 use Laravel\Nova\Nova;
+use Laravel\Nova\Util;
+use Throwable;
 
 class ResourceAttachController extends Controller
 {
     use HandlesCustomRelationKeys;
 
     /**
-     * Attach a related resource to the given resource.
-     *
-     * @param  \Laravel\Nova\Http\Requests\NovaRequest  $request
-     * @return \Illuminate\Http\Response
+     * The action event for the action.
      */
-    public function handle(NovaRequest $request)
+    protected ?ActionEvent $actionEvent = null;
+
+    /**
+     * Attach a related resource to the given resource.
+     */
+    public function __invoke(NovaRequest $request): Response
     {
-        $this->validate(
-            $request, $model = $request->findModelOrFail(),
-            $resource = $request->resource()
-        );
+        $resourceClass = $request->resource();
 
-        DB::transaction(function () use ($request, $resource, $model) {
-            [$pivot, $callbacks] = $resource::fillPivot(
-                $request, $model, $this->initializePivot(
-                    $request, $model->{$request->viaRelationship}()
-                )
-            );
+        $model = $request->findModelOrFail();
 
-            Nova::actionEvent()->forAttachedResource($request, $model, $pivot)->save();
-
-            $pivot->save();
-
-            collect($callbacks)->each->__invoke();
+        tap(new $resourceClass($model), static function ($resource) use ($request) {
+            abort_unless($resource->hasRelatableFieldOrRelationship($request, $request->viaRelationship), 404);
         });
+
+        $this->validate($request, $model, $resourceClass);
+
+        try {
+            DB::connection($model->getConnectionName())->transaction(function () use ($request, $resourceClass, $model) {
+                [$pivot, $callbacks] = $resourceClass::fillPivot(
+                    $request,
+                    $model,
+                    $this->initializePivot(
+                        $request,
+                        $model->{$request->viaRelationship}()
+                    )
+                );
+
+                tap(new $resourceClass($model), static function ($resource) use ($request) {
+                    abort_unless($resource->authorizedToAttach($request, $request->findRelatedModelOrFail()), 401);
+                });
+
+                DB::transaction(function () use ($request, $model, $pivot) {
+                    Nova::usingActionEvent(function ($actionEvent) use ($request, $model, $pivot) {
+                        $this->actionEvent = $actionEvent->forAttachedResource($request, $model, $pivot);
+                        $this->actionEvent->save();
+                    });
+                });
+
+                $pivot->save();
+
+                collect($callbacks)->each->__invoke();
+            });
+
+            return response()->noContent(200);
+        } catch (Throwable $e) {
+            optional($this->actionEvent)->delete();
+            throw $e;
+        }
     }
 
     /**
      * Validate the attachment request.
      *
-     * @param  \Laravel\Nova\Http\Requests\NovaRequest  $request
      * @param  \Illuminate\Database\Eloquent\Model  $model
-     * @param  string  $resource
-     * @return void
+     * @param  class-string<\Laravel\Nova\Resource>  $resourceClass
      */
-    protected function validate(NovaRequest $request, $model, $resource)
+    protected function validate(NovaRequest $request, $model, string $resourceClass): void
     {
-        $attribute = $resource::validationAttachableAttributeFor($request, $request->relatedResource);
+        tap($this->creationRules($request, $resourceClass), function ($rules) use ($resourceClass, $request) {
+            $attribute = $resourceClass::validationAttachableAttributeFor($request, $request->relatedResource);
 
-        tap($this->creationRules($request, $resource), function ($rules) use ($resource, $request, $attribute) {
             Validator::make($request->all(), $rules, [], $this->customRulesKeys($request, $attribute))->validate();
 
-            $resource::validateForAttachment($request);
+            $resourceClass::validateForAttachment($request);
         });
     }
 
@@ -64,13 +94,11 @@ class ResourceAttachController extends Controller
      * Return the validation rules used for the request. Correctly aasign the rules used
      * to the main attribute if the user has defined a custom relation key.
      *
-     * @param  \Laravel\Nova\Http\Requests\NovaRequest  $request
-     * @param  string  $resource
-     * @return mixed
+     * @param  class-string<\Laravel\Nova\Resource>  $resourceClass
      */
-    protected function creationRules(NovaRequest $request, $resource)
+    protected function creationRules(NovaRequest $request, string $resourceClass): array
     {
-        $rules = $resource::creationRulesFor($request, $this->getRuleKey($request));
+        $rules = $resourceClass::creationRulesFor($request, $this->getRuleKey($request));
 
         if ($this->usingCustomRelationKey($request)) {
             $rules[$request->relatedResource] = $rules[$request->viaRelationship];
@@ -83,12 +111,13 @@ class ResourceAttachController extends Controller
     /**
      * Initialize a fresh pivot model for the relationship.
      *
-     * @param  \Laravel\Nova\Http\Requests\NovaRequest  $request
      * @param  \Illuminate\Database\Eloquent\Relations\BelongsToMany  $relationship
-     * @return \Illuminate\Database\Eloquent\Relations\Pivot
-     * @throws \Exception
+     * @return (\Illuminate\Database\Eloquent\Model&\Illuminate\Database\Eloquent\Relations\Concerns\AsPivot)|\Illuminate\Database\Eloquent\Relations\Pivot
+     *
+     * @throws \RuntimeException
+     * @throws \Illuminate\Database\Eloquent\ModelNotFoundException
      */
-    protected function initializePivot(NovaRequest $request, $relationship)
+    protected function initializePivot(NovaRequest $request, $relationship): Model|Pivot
     {
         $parentKey = $request->resourceId;
         $relatedKey = $request->input($request->relatedResource);
@@ -100,11 +129,13 @@ class ResourceAttachController extends Controller
             $parentKey = $request->findModelOrFail()->{$parentKeyName};
         }
 
-        if ($relatedKeyName !== ($request->newRelatedResource()::newModel())->getKeyName()) {
+        if ($relatedKeyName !== $request->newRelatedResource()::newModel()->getKeyName()) {
             $relatedKey = $request->findRelatedModelOrFail()->{$relatedKeyName};
         }
 
-        ($pivot = $relationship->newPivot())->forceFill([
+        $pivot = $relationship->newPivot($relationship->getDefaultPivotAttributes(), false);
+
+        Util::expectPivotModel($pivot)->forceFill([
             $relationship->getForeignPivotKeyName() => $parentKey,
             $relationship->getRelatedPivotKeyName() => $relatedKey,
         ]);

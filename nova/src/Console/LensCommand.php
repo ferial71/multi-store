@@ -4,7 +4,9 @@ namespace Laravel\Nova\Console;
 
 use Illuminate\Console\GeneratorCommand;
 use Illuminate\Support\Str;
+use Symfony\Component\Console\Attribute\AsCommand;
 
+#[AsCommand(name: 'nova:lens')]
 class LensCommand extends GeneratorCommand
 {
     use ResolvesStubPath;
@@ -30,12 +32,8 @@ class LensCommand extends GeneratorCommand
      */
     protected $type = 'Lens';
 
-    /**
-     * Build the class with the given name.
-     *
-     * @param  string  $name
-     * @return string
-     */
+    /** {@inheritDoc} */
+    #[\Override]
     protected function buildClass($name)
     {
         $stub = parent::buildClass($name);
@@ -55,12 +53,8 @@ class LensCommand extends GeneratorCommand
         return $this->resolveStubPath('/stubs/nova/lens.stub');
     }
 
-    /**
-     * Get the default namespace for the class.
-     *
-     * @param  string  $rootNamespace
-     * @return string
-     */
+    /** {@inheritDoc} */
+    #[\Override]
     protected function getDefaultNamespace($rootNamespace)
     {
         return $rootNamespace.'\Nova\Lenses';

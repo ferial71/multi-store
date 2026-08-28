@@ -1,5 +1,9 @@
 let mix = require('laravel-mix')
+let webpack = require('webpack')
 let tailwindcss = require('tailwindcss')
+let path = require('path')
+let postcssImport = require('postcss-import')
+let postcssRtlcss = require('postcss-rtlcss')
 
 /*
  |--------------------------------------------------------------------------
@@ -13,39 +17,42 @@ let tailwindcss = require('tailwindcss')
  */
 
 mix
-    .js('resources/js/app.js', 'public')
-    .extract([
-        'axios',
-        'chartist-plugin-tooltips',
-        'chartist',
-        'codemirror',
-        'flatpickr',
-        'form-backend-validation',
-        'inflector-js',
-        'laravel-nova',
-        'lodash',
-        'markdown-it',
-        'moment-timezone',
-        'moment',
-        'numbro',
-        'places.js',
-        'popper.js',
-        'portal-vue',
-        'trix',
-        'vue-async-computed',
-        'vue-clickaway',
-        'vue-router',
-        'vue-toasted',
-        'vue',
-    ])
-    .setPublicPath('public')
-    .postCss('resources/css/app.css', 'public', [tailwindcss('tailwind.js')])
-    .copy('public', '../nova-app/public/vendor/nova')
-    .webpackConfig({
-        resolve: {
-            alias: {
-                '@': path.resolve(__dirname, 'resources/js/'),
-            },
-        },
-    })
-    .version()
+  .js('resources/js/app.js', 'public')
+  .ts('resources/ui/ui.js', 'public/ui.js')
+  .vue({ version: 3 })
+  // .sourceMaps()
+  .extract()
+  .setPublicPath('public')
+  .postCss('resources/css/app.css', 'public', [
+    postcssImport(),
+    tailwindcss('tailwind.config.js'),
+    postcssRtlcss(),
+  ])
+  .copy('resources/fonts/', 'public/fonts')
+  .alias({ '@': path.join(__dirname, 'resources/js/') })
+  .webpackConfig({
+    externals: {
+      'laravel-nova-ui': 'LaravelNovaUi',
+    },
+    plugins: [
+      new webpack.DefinePlugin({
+        // Temporary fixes: https://github.com/vuejs/vue-cli/pull/7443
+        __VUE_PROD_HYDRATION_MISMATCH_DETAILS__: 'false',
+      })
+    ],
+    resolve: {
+      symlinks: false,
+      alias: { vue: path.resolve("./node_modules/vue") }
+    },
+    output: { uniqueName: 'laravel/nova' }
+  })
+  .options({
+    vue: {
+      exposeFilename: true,
+      compilerOptions: {
+        isCustomElement: tag => tag.startsWith('trix-'),
+      },
+    },
+    processCssUrls: false,
+  })
+  .version()

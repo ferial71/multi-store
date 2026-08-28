@@ -2,24 +2,33 @@
 
 namespace Laravel\Nova\Filters;
 
-use Illuminate\Container\Container;
-use Illuminate\Http\Request;
+use Illuminate\Contracts\Database\Eloquent\Builder;
+use Illuminate\Support\Str;
+use Illuminate\Support\Traits\Macroable;
 use JsonSerializable;
 use Laravel\Nova\AuthorizedToSee;
 use Laravel\Nova\Contracts\Filter as FilterContract;
+use Laravel\Nova\Http\Requests\NovaRequest;
 use Laravel\Nova\Makeable;
 use Laravel\Nova\Metable;
 use Laravel\Nova\Nova;
 use Laravel\Nova\ProxiesCanSeeToGate;
+use Laravel\Nova\WithComponent;
 
 abstract class Filter implements FilterContract, JsonSerializable
 {
-    use Metable, AuthorizedToSee, ProxiesCanSeeToGate, Makeable;
+    use AuthorizedToSee;
+    use Macroable;
+    use Makeable;
+    use Metable;
+    use ProxiesCanSeeToGate;
+    use Searchable;
+    use WithComponent;
 
     /**
      * The displayable name of the filter.
      *
-     * @var string
+     * @var \Stringable|string
      */
     public $name;
 
@@ -33,35 +42,24 @@ abstract class Filter implements FilterContract, JsonSerializable
     /**
      * Apply the filter to the given query.
      *
-     * @param  \Illuminate\Http\Request  $request
-     * @param  \Illuminate\Database\Eloquent\Builder  $query
-     * @param  mixed  $value
-     * @return \Illuminate\Database\Eloquent\Builder
+     * @return \Illuminate\Contracts\Database\Eloquent\Builder
      */
-    abstract public function apply(Request $request, $query, $value);
+    abstract public function apply(NovaRequest $request, Builder $query, mixed $value);
 
     /**
      * Get the filter's available options.
      *
-     * @param  \Illuminate\Http\Request  $request
      * @return array
      */
-    abstract public function options(Request $request);
-
-    /**
-     * Get the component name for the filter.
-     *
-     * @return string
-     */
-    public function component()
+    public function options(NovaRequest $request)
     {
-        return $this->component;
+        return [];
     }
 
     /**
      * Get the displayable name of the filter.
      *
-     * @return string
+     * @return \Stringable|string
      */
     public function name()
     {
@@ -75,7 +73,7 @@ abstract class Filter implements FilterContract, JsonSerializable
      */
     public function key()
     {
-        return get_class($this);
+        return $this::class;
     }
 
     /**
@@ -91,20 +89,31 @@ abstract class Filter implements FilterContract, JsonSerializable
     /**
      * Prepare the filter for JSON serialization.
      *
-     * @return array
+     * @return array<string, mixed>
      */
-    public function jsonSerialize()
+    public function jsonSerialize(): array
     {
-        $container = Container::getInstance();
+        return with(app(NovaRequest::class), function (NovaRequest $request) {
+            $name = $this->name();
+            $component = $this->component();
 
-        return array_merge([
-            'class' => $this->key(),
-            'name' => $this->name(),
-            'component' => $this->component(),
-            'options' => collect($this->options($container->make(Request::class)))->map(function ($value, $key) {
-                return is_array($value) ? ($value + ['value' => $key]) : ['name' => $key, 'value' => $value];
-            })->values()->all(),
-            'currentValue' => $this->default() ?? '',
-        ], $this->meta());
+            return array_merge([
+                'class' => $this->key(),
+                'name' => $name,
+                'uniqueKey' => \sprintf('%s-%s', Str::slug($name), $component),
+                'component' => $component,
+                'options' => collect($this->options($request))->map(static function ($value, $label) {
+                    if (\is_array($value)) {
+                        return array_merge(['label' => $label], $value);
+                    } elseif (\is_string($label)) {
+                        return ['label' => $label, 'value' => $value];
+                    }
+
+                    return ['label' => $value, 'value' => $value];
+                })->values()->all(),
+                'currentValue' => $this->default() ?? '',
+                'searchable' => $this->isSearchable($request),
+            ], $this->meta());
+        });
     }
 }

@@ -2,72 +2,99 @@
 
 namespace Laravel\Nova\Http\Controllers;
 
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\Pivot;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
+use Laravel\Nova\Actions\ActionEvent;
 use Laravel\Nova\Http\Requests\NovaRequest;
 use Laravel\Nova\Nova;
+use Laravel\Nova\Util;
+use Throwable;
 
 class AttachedResourceUpdateController extends Controller
 {
     use HandlesCustomRelationKeys;
 
     /**
+     * The action event for the action.
+     */
+    protected ?ActionEvent $actionEvent = null;
+
+    /**
      * Update an attached resource pivot record.
      *
-     * @param  \Laravel\Nova\Http\Requests\NovaRequest  $request
-     * @return \Illuminate\Http\Response
+     * @throws \Throwable
      */
-    public function handle(NovaRequest $request)
+    public function __invoke(NovaRequest $request): mixed
     {
-        $this->validate(
-            $request, $model = $request->findModelOrFail(),
-            $resource = $request->resource()
-        );
+        $resourceClass = $request->resource();
 
-        return DB::transaction(function () use ($request, $resource, $model) {
-            $model->setRelation(
-                $model->{$request->viaRelationship}()->getPivotAccessor(),
-                $pivot = $this->findPivot($request, $model)
-            );
+        $model = $request->findModelOrFail();
 
-            if ($this->modelHasBeenUpdatedSinceRetrieval($request, $pivot)) {
-                return response('', 409);
-            }
-
-            [$pivot, $callbacks] = $resource::fillPivotForUpdate($request, $model, $pivot);
-
-            Nova::actionEvent()->forAttachedResourceUpdate($request, $model, $pivot)->save();
-
-            $pivot->save();
-
-            collect($callbacks)->each->__invoke();
+        tap(new $resourceClass($model), static function ($resource) use ($request) {
+            abort_unless($resource->hasRelatableFieldOrRelationship($request, $request->viaRelationship), 404);
         });
+
+        $this->validate($request, $model, $resourceClass);
+
+        try {
+            return DB::connection($model->getConnectionName())->transaction(function () use ($request, $resourceClass, $model) {
+                $model->setRelation(
+                    $model->{$request->viaRelationship}()->getPivotAccessor(),
+                    $pivot = $this->findPivot($request, $model)
+                );
+
+                if ($this->modelHasBeenUpdatedSinceRetrieval($request, $pivot)) {
+                    return response('', 409);
+                }
+
+                [$pivot, $callbacks] = $resourceClass::fillPivotForUpdate($request, $model, $pivot);
+
+                DB::transaction(function () use ($request, $model, $pivot) {
+                    Nova::usingActionEvent(function (ActionEvent $actionEvent) use ($request, $model, $pivot) {
+                        $this->actionEvent = $actionEvent->forAttachedResourceUpdate($request, $model, $pivot);
+                        $this->actionEvent->save();
+                    });
+                });
+
+                $pivot->save();
+
+                collect($callbacks)->each->__invoke();
+            });
+        } catch (Throwable $e) {
+            optional($this->actionEvent)->delete();
+            throw $e;
+        }
     }
 
     /**
      * Validate the attachment request.
      *
-     * @param  \Laravel\Nova\Http\Requests\NovaRequest  $request
      * @param  \Illuminate\Database\Eloquent\Model  $model
-     * @param  string  $resource
-     * @return void
+     * @param  class-string<\Laravel\Nova\Resource>  $resourceClass
      */
-    protected function validate(NovaRequest $request, $model, $resource)
+    protected function validate(NovaRequest $request, $model, string $resourceClass): void
     {
-        $attribute = $resource::validationAttachableAttributeFor($request, $request->relatedResource);
+        tap($this->updateRulesFor($request, $resourceClass), function ($rules) use ($resourceClass, $request) {
+            $attribute = $resourceClass::validationAttachableAttributeFor($request, $request->relatedResource);
 
-        tap($this->updateRulesFor($request, $resource), function ($rules) use ($resource, $request, $attribute) {
             Validator::make($request->all(), $rules, [], $this->customRulesKeys($request, $attribute))->validate();
 
-            $resource::validateForAttachmentUpdate($request);
+            $resourceClass::validateForAttachmentUpdate($request);
         });
     }
 
-    protected function updateRulesFor(NovaRequest $request, $resource)
+    /**
+     * Get update rules for request from the resource.
+     *
+     * @param  class-string<\Laravel\Nova\Resource>  $resourceClass
+     */
+    protected function updateRulesFor(NovaRequest $request, string $resourceClass): array
     {
-        $rules = $resource::updateRulesFor($request, $this->getRuleKey($request));
+        $rules = $resourceClass::updateRulesFor($request, $this->getRuleKey($request));
 
         if ($this->usingCustomRelationKey($request)) {
             $rules[$request->relatedResource] = $rules[$request->viaRelationship];
@@ -80,36 +107,46 @@ class AttachedResourceUpdateController extends Controller
     /**
      * Find the pivot model for the operation.
      *
-     * @param  \Laravel\Nova\Http\Requests\NovaRequest  $request
      * @param  \Illuminate\Database\Eloquent\Model  $model
-     * @return \Illuminate\Database\Eloquent\Model
+     * @return (\Illuminate\Database\Eloquent\Model&\Illuminate\Database\Eloquent\Relations\Concerns\AsPivot)|\Illuminate\Database\Eloquent\Relations\Pivot
+     *
+     * @throws \RuntimeException
+     * @throws \Illuminate\Database\Eloquent\ModelNotFoundException
      */
-    protected function findPivot(NovaRequest $request, $model)
+    protected function findPivot(NovaRequest $request, $model): Model|Pivot
     {
-        $pivot = $model->{$request->viaRelationship}()->getPivotAccessor();
+        $relation = $model->{$request->viaRelationship}();
 
-        return $model->{$request->viaRelationship}()
-                    ->withoutGlobalScopes()
-                    ->lockForUpdate()
-                    ->findOrFail($request->relatedResourceId)->{$pivot};
+        if ($request->viaPivotId) {
+            tap($relation->getPivotClass(), static function ($pivotClass) use ($relation, $request) {
+                $relation->wherePivot((new $pivotClass)->getKeyName(), $request->viaPivotId);
+            });
+        }
+
+        $accessor = $relation->getPivotAccessor();
+
+        return Util::expectPivotModel(
+            $relation
+                ->withoutGlobalScopes()
+                ->lockForUpdate()
+                ->findOrFail($request->relatedResourceId)->{$accessor}
+        );
     }
 
     /**
      * Determine if the model has been updated since it was retrieved.
      *
-     * @param  \Laravel\Nova\Http\Requests\NovaRequest  $request
      * @param  \Illuminate\Database\Eloquent\Model  $model
-     * @return void
      */
-    protected function modelHasBeenUpdatedSinceRetrieval(NovaRequest $request, $model)
+    protected function modelHasBeenUpdatedSinceRetrieval(NovaRequest $request, $model): bool
     {
         $column = $model->getUpdatedAtColumn();
 
-        if (! $model->{$column}) {
+        if (! ($model->usesTimestamps() && $model->{$column})) {
             return false;
         }
 
-        return $request->input('_retrieved_at') && $model->usesTimestamps() && $model->{$column}->gt(
+        return $request->input('_retrieved_at') && $model->{$column}->gt(
             Carbon::createFromTimestamp($request->input('_retrieved_at'))
         );
     }

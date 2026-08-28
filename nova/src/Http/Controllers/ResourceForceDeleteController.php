@@ -2,41 +2,27 @@
 
 namespace Laravel\Nova\Http\Controllers;
 
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Response;
 use Illuminate\Routing\Controller;
-use Illuminate\Support\Facades\DB;
-use Laravel\Nova\Actions\Actionable;
 use Laravel\Nova\Http\Requests\ForceDeleteResourceRequest;
-use Laravel\Nova\Nova;
+use Laravel\Nova\Jobs\ForceDeleteResources;
 
 class ResourceForceDeleteController extends Controller
 {
-    use DeletesFields;
-
     /**
      * Force delete the given resource(s).
-     *
-     * @param  \Laravel\Nova\Http\Requests\ForceDeleteResourceRequest  $request
-     * @return \Illuminate\Http\Response
      */
-    public function handle(ForceDeleteResourceRequest $request)
+    public function __invoke(ForceDeleteResourceRequest $request): JsonResponse|Response
     {
-        $request->chunks(150, function ($models) use ($request) {
-            $models->each(function ($model) use ($request) {
-                $this->forceDeleteFields($request, $model);
+        ForceDeleteResources::dispatchSync($request, $request->resource());
 
-                if (in_array(Actionable::class, class_uses_recursive($model))) {
-                    $model->actions()->delete();
-                }
+        if ($request->isForSingleResource() && ! \is_null($redirect = $request->resource()::redirectAfterDelete($request))) {
+            return response()->json([
+                'redirect' => $redirect,
+            ]);
+        }
 
-                $model->forceDelete();
-
-                tap(Nova::actionEvent(), function ($actionEvent) use ($model, $request) {
-                    DB::connection($actionEvent->getConnectionName())->table('action_events')->insert(
-                        $actionEvent->forResourceDelete($request->user(), collect([$model]))
-                            ->map->getAttributes()->all()
-                    );
-                });
-            });
-        });
+        return response()->noContent(200);
     }
 }

@@ -2,47 +2,28 @@
 
 namespace Laravel\Nova\Http\Controllers;
 
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Response;
 use Illuminate\Routing\Controller;
-use Illuminate\Support\Facades\DB;
-use Laravel\Nova\Actions\Actionable;
 use Laravel\Nova\Http\Requests\DeleteResourceRequest;
-use Laravel\Nova\Nova;
+use Laravel\Nova\Jobs\DeleteResources;
+use Laravel\Nova\URL;
 
 class ResourceDestroyController extends Controller
 {
-    use DeletesFields;
-
     /**
      * Destroy the given resource(s).
-     *
-     * @param  \Laravel\Nova\Http\Requests\DeleteResourceRequest  $request
-     * @return \Illuminate\Http\Response
      */
-    public function handle(DeleteResourceRequest $request)
+    public function __invoke(DeleteResourceRequest $request): JsonResponse|Response
     {
-        $request->chunks(150, function ($models) use ($request) {
-            $models->each(function ($model) use ($request) {
-                $this->deleteFields($request, $model);
+        DeleteResources::dispatchSync($request, $request->resource());
 
-                if (in_array(Actionable::class, class_uses_recursive($model))) {
-                    $model->actions()->delete();
-                }
-
-                $model->delete();
-
-                tap(Nova::actionEvent(), function ($actionEvent) use ($model, $request) {
-                    DB::connection($actionEvent->getConnectionName())->table('action_events')->insert(
-                        $actionEvent->forResourceDelete($request->user(), collect([$model]))
-                            ->map->getAttributes()->all()
-                    );
-                });
-            });
-        });
-
-        if ($request->isForSingleResource() && ! is_null($redirect = $request->resource()::redirectAfterDelete($request))) {
+        if ($request->isForSingleResource() && ! \is_null($redirect = $request->resource()::redirectAfterDelete($request))) {
             return response()->json([
-                'redirect' => $redirect,
+                'redirect' => URL::make($redirect),
             ]);
         }
+
+        return response()->noContent(200);
     }
 }

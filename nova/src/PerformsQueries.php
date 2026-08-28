@@ -2,29 +2,32 @@
 
 namespace Laravel\Nova;
 
+use Illuminate\Contracts\Database\Eloquent\Builder;
 use Laravel\Nova\Http\Requests\NovaRequest;
-use Laravel\Nova\Query\ApplySoftDeleteConstraint;
+use Laravel\Nova\Query\Search;
+use Laravel\Nova\Query\Search\PrimaryKey;
+use Laravel\Scout\Builder as ScoutBuilder;
 
 trait PerformsQueries
 {
     /**
      * Build an "index" query for the given resource.
      *
-     * @param  \Laravel\Nova\Http\Requests\NovaRequest  $request
-     * @param  \Illuminate\Database\Eloquent\Builder  $query
-     * @param  string  $search
-     * @param  array  $filters
-     * @param  array  $orderings
-     * @param  string  $withTrashed
-     * @return \Illuminate\Database\Eloquent\Builder
+     * @param  array<int, \Laravel\Nova\Query\ApplyFilter>  $filters
+     * @param  array<string, string>  $orderings
+     * @return \Illuminate\Contracts\Database\Eloquent\Builder
      */
-    public static function buildIndexQuery(NovaRequest $request, $query, $search = null,
-                                      array $filters = [], array $orderings = [],
-                                      $withTrashed = TrashedStatus::DEFAULT)
-    {
+    public static function buildIndexQuery(
+        NovaRequest $request,
+        Builder $query,
+        ?string $search = null,
+        array $filters = [],
+        array $orderings = [],
+        TrashedStatus $withTrashed = TrashedStatus::DEFAULT
+    ) {
         return static::applyOrderings(static::applyFilters(
-            $request, static::initializeQuery($request, $query, $search, $withTrashed), $filters
-        ), $orderings)->tap(function ($query) use ($request) {
+            $request, static::initializeQuery($request, $query, (string) $search, $withTrashed), $filters
+        ), $orderings)->tap(static function ($query) use ($request) {
             static::indexQuery($request, $query->with(static::$with));
         });
     }
@@ -32,13 +35,9 @@ trait PerformsQueries
     /**
      * Initialize the given index query.
      *
-     * @param  \Laravel\Nova\Http\Requests\NovaRequest  $request
-     * @param  \Illuminate\Database\Eloquent\Builder  $query
-     * @param  string  $search
-     * @param  string  $withTrashed
-     * @return \Illuminate\Database\Eloquent\Builder
+     * @return \Illuminate\Contracts\Database\Eloquent\Builder
      */
-    protected static function initializeQuery(NovaRequest $request, $query, $search, $withTrashed)
+    protected static function initializeQuery(NovaRequest $request, Builder $query, string $search, TrashedStatus $withTrashed)
     {
         if (empty(trim($search))) {
             return static::applySoftDeleteConstraint($query, $withTrashed);
@@ -51,51 +50,41 @@ trait PerformsQueries
 
     /**
      * Apply the search query to the query.
-     *
-     * @param  \Illuminate\Database\Eloquent\Builder  $query
-     * @param  string  $search
-     * @return \Illuminate\Database\Eloquent\Builder
      */
-    protected static function applySearch($query, $search)
+    protected static function applySearch(Builder $query, string $search): Builder
     {
-        return $query->where(function ($query) use ($search) {
-            $model = $query->getModel();
+        $modelKeyName = $query->getModel()->getKeyName();
 
-            $connectionType = $model->getConnection()->getDriverName();
+        /** @phpstan-ignore nullCoalesce.expr */
+        $searchColumns = collect(static::searchableColumns() ?? [])
+                            ->transform(static function ($column) use ($modelKeyName) {
+                                if ($column === $modelKeyName) {
+                                    return new PrimaryKey($column, static::maxPrimaryKeySize());
+                                }
 
-            $canSearchPrimaryKey = ctype_digit($search) &&
-                                   in_array($model->getKeyType(), ['int', 'integer']) &&
-                                   ($connectionType != 'pgsql' || $search <= static::maxPrimaryKeySize()) &&
-                                   in_array($model->getKeyName(), static::$search);
+                                return $column;
+                            })->all();
 
-            if ($canSearchPrimaryKey) {
-                $query->orWhere($model->getQualifiedKeyName(), $search);
-            }
+        return static::initializeSearch($query, $search, $searchColumns);
+    }
 
-            $likeOperator = $connectionType == 'pgsql' ? 'ilike' : 'like';
-
-            foreach (static::searchableColumns() as $column) {
-                $query->orWhere($model->qualifyColumn($column), $likeOperator, '%'.$search.'%');
-            }
-        });
+    /**
+     * Initialize the search configuration.
+     */
+    protected static function initializeSearch(Builder $query, string $search, array $searchColumns): Builder
+    {
+        return app(Search::class, [
+            'queryBuilder' => $query,
+            'searchKeyword' => $search,
+        ])->handle(__CLASS__, $searchColumns);
     }
 
     /**
      * Initialize the given index query using Laravel Scout.
-     *
-     * @param  \Laravel\Nova\Http\Requests\NovaRequest  $request
-     * @param  \Illuminate\Database\Eloquent\Builder  $query
-     * @param  string  $search
-     * @param  string  $withTrashed
-     * @return \Illuminate\Database\Eloquent\Builder
      */
-    protected static function initializeQueryUsingScout(NovaRequest $request, $query, $search, $withTrashed)
+    protected static function initializeQueryUsingScout(NovaRequest $request, Builder $query, string $search, TrashedStatus $withTrashed): Builder
     {
-        $keys = tap(static::applySoftDeleteConstraint(
-            static::newModel()->search($search), $withTrashed
-        ), function ($scoutBuilder) use ($request) {
-            static::scoutQuery($request, $scoutBuilder);
-        })->take(static::$scoutSearchResults)->get()->map->getKey();
+        $keys = static::buildIndexQueryUsingScout($request, $search, $withTrashed)->get()->map->getKey();
 
         return static::applySoftDeleteConstraint(
             $query->whereIn(static::newModel()->getQualifiedKeyName(), $keys->all()), $withTrashed
@@ -103,28 +92,39 @@ trait PerformsQueries
     }
 
     /**
+     * Build an "index" result for the given resource using Scout.
+     */
+    public static function buildIndexQueryUsingScout(
+        NovaRequest $request,
+        ?string $search = null,
+        TrashedStatus $withTrashed = TrashedStatus::DEFAULT
+    ): ScoutBuilder {
+        return tap(static::applySoftDeleteConstraint(
+            static::newModel()->search($search), $withTrashed
+        ), static function ($scoutBuilder) use ($request) {
+            static::scoutQuery($request, $scoutBuilder);
+        })->take(static::$scoutSearchResults);
+    }
+
+    /**
      * Scope the given query for the soft delete state.
      *
-     * @param  mixed  $query
-     * @param  string  $withTrashed
-     * @return mixed
+     * @param  \Illuminate\Contracts\Database\Eloquent\Builder|\Laravel\Scout\Builder  $query
+     * @return \Illuminate\Contracts\Database\Eloquent\Builder|\Laravel\Scout\Builder
      */
-    protected static function applySoftDeleteConstraint($query, $withTrashed)
+    protected static function applySoftDeleteConstraint($query, TrashedStatus $withTrashed)
     {
         return static::softDeletes()
-                ? (new ApplySoftDeleteConstraint)->__invoke($query, $withTrashed)
+                ? $withTrashed->applySoftDeleteConstraint($query)
                 : $query;
     }
 
     /**
      * Apply any applicable filters to the query.
      *
-     * @param  \Laravel\Nova\Http\Requests\NovaRequest  $request
-     * @param  \Illuminate\Database\Eloquent\Builder  $query
-     * @param  array  $filters
-     * @return \Illuminate\Database\Eloquent\Builder
+     * @param  array<int, \Laravel\Nova\Query\ApplyFilter>  $filters
      */
-    protected static function applyFilters(NovaRequest $request, $query, array $filters)
+    protected static function applyFilters(NovaRequest $request, Builder $query, array $filters): Builder
     {
         collect($filters)->each->__invoke($request, $query);
 
@@ -134,17 +134,15 @@ trait PerformsQueries
     /**
      * Apply any applicable orderings to the query.
      *
-     * @param  \Illuminate\Database\Eloquent\Builder  $query
-     * @param  array  $orderings
-     * @return \Illuminate\Database\Eloquent\Builder
+     * @param  array<string, string>  $orderings
      */
-    protected static function applyOrderings($query, array $orderings)
+    protected static function applyOrderings(Builder $query, array $orderings): Builder
     {
         $orderings = array_filter($orderings);
 
         if (empty($orderings)) {
-            return empty($query->getQuery()->orders)
-                        ? $query->latest($query->getModel()->getQualifiedKeyName())
+            return empty($query->getQuery()->orders) && ! static::usesScout()
+                        ? static::defaultOrderings($query)
                         : $query;
         }
 
@@ -156,13 +154,21 @@ trait PerformsQueries
     }
 
     /**
+     * Apply the default orderings for the given resource.
+     *
+     * @return \Illuminate\Contracts\Database\Eloquent\Builder
+     */
+    public static function defaultOrderings(Builder $query)
+    {
+        return $query->latest($query->getModel()->getQualifiedKeyName());
+    }
+
+    /**
      * Build an "index" query for the given resource.
      *
-     * @param  \Laravel\Nova\Http\Requests\NovaRequest  $request
-     * @param  \Illuminate\Database\Eloquent\Builder  $query
-     * @return \Illuminate\Database\Eloquent\Builder
+     * @return \Illuminate\Contracts\Database\Eloquent\Builder
      */
-    public static function indexQuery(NovaRequest $request, $query)
+    public static function indexQuery(NovaRequest $request, Builder $query)
     {
         return $query;
     }
@@ -170,11 +176,9 @@ trait PerformsQueries
     /**
      * Build a Scout search query for the given resource.
      *
-     * @param  \Laravel\Nova\Http\Requests\NovaRequest  $request
-     * @param  \Laravel\Scout\Builder  $query
      * @return \Laravel\Scout\Builder
      */
-    public static function scoutQuery(NovaRequest $request, $query)
+    public static function scoutQuery(NovaRequest $request, ScoutBuilder $query)
     {
         return $query;
     }
@@ -182,11 +186,29 @@ trait PerformsQueries
     /**
      * Build a "detail" query for the given resource.
      *
-     * @param  \Laravel\Nova\Http\Requests\NovaRequest  $request
-     * @param  \Illuminate\Database\Eloquent\Builder  $query
-     * @return \Illuminate\Database\Eloquent\Builder
+     * @return \Illuminate\Contracts\Database\Eloquent\Builder
      */
-    public static function detailQuery(NovaRequest $request, $query)
+    public static function detailQuery(NovaRequest $request, Builder $query)
+    {
+        return $query;
+    }
+
+    /**
+     * Build an "edit" query for the given resource.
+     *
+     * @return \Illuminate\Contracts\Database\Eloquent\Builder
+     */
+    public static function editQuery(NovaRequest $request, Builder $query)
+    {
+        return $query;
+    }
+
+    /**
+     * Build a "replicate" query for the given resource.
+     *
+     * @return \Illuminate\Contracts\Database\Eloquent\Builder
+     */
+    public static function replicateQuery(NovaRequest $request, Builder $query)
     {
         return $query;
     }
@@ -196,11 +218,9 @@ trait PerformsQueries
      *
      * This query determines which instances of the model may be attached to other resources.
      *
-     * @param  \Laravel\Nova\Http\Requests\NovaRequest  $request
-     * @param  \Illuminate\Database\Eloquent\Builder  $query
-     * @return \Illuminate\Database\Eloquent\Builder
+     * @return \Illuminate\Contracts\Database\Eloquent\Builder
      */
-    public static function relatableQuery(NovaRequest $request, $query)
+    public static function relatableQuery(NovaRequest $request, Builder $query)
     {
         return $query;
     }

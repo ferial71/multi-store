@@ -3,12 +3,20 @@
 namespace Laravel\Nova\Fields;
 
 use Illuminate\Http\Request;
-use Laravel\Nova\Contracts\ListableField;
+use Laravel\Nova\Contracts\BehavesAsPanel;
 use Laravel\Nova\Contracts\RelatableField;
 use Laravel\Nova\Http\Requests\NovaRequest;
 use Laravel\Nova\Nova;
+use Laravel\Nova\Panel;
+use Laravel\Nova\Resource;
+use Stringable;
 
-class HasOneThrough extends Field implements ListableField, RelatableField
+use function Orchestra\Sidekick\Eloquent\model_exists;
+
+/**
+ * @method static static make(\Stringable|string $name, string|null $attribute = null, string|null $resource = null)
+ */
+class HasOneThrough extends Field implements BehavesAsPanel, RelatableField
 {
     /**
      * The field's component.
@@ -20,7 +28,7 @@ class HasOneThrough extends Field implements ListableField, RelatableField
     /**
      * The class name of the related resource.
      *
-     * @var string
+     * @var class-string<\Laravel\Nova\Resource>
      */
     public $resourceClass;
 
@@ -34,9 +42,16 @@ class HasOneThrough extends Field implements ListableField, RelatableField
     /**
      * The displayable singular label of the relation.
      *
-     * @var string
+     * @var \Stringable|string
      */
     public $singularLabel;
+
+    /**
+     * The resolved HasOneThrough Resource.
+     *
+     * @var \Laravel\Nova\Resource|null
+     */
+    public $hasOneThroughResource = null;
 
     /**
      * The name of the Eloquent "has one through" relationship.
@@ -46,38 +61,43 @@ class HasOneThrough extends Field implements ListableField, RelatableField
     public $hasOneThroughRelationship;
 
     /**
-     * The callback use to determine if the HasOne field has already been filled.
+     * The key of the related Eloquent model.
      *
-     * @var \Closure
+     * @var string|int|null
+     */
+    public $hasOneThroughId = null;
+
+    /**
+     * The callback used to determine if the HasOne field has already been filled.
+     *
+     * @var callable(\Laravel\Nova\Http\Requests\NovaRequest):bool
      */
     public $filledCallback;
 
     /**
      * Create a new field.
      *
-     * @param  string  $name
-     * @param  string|null  $attribute
-     * @param  string|null  $resource
-     * @return void
+     * @param  \Stringable|string  $name
+     * @param  class-string<\Laravel\Nova\Resource>|null  $resource
      */
-    public function __construct($name, $attribute = null, $resource = null)
+    public function __construct($name, ?string $attribute = null, ?string $resource = null)
     {
         parent::__construct($name, $attribute);
 
-        $resource = $resource ?? ResourceRelationshipGuesser::guessResource($name);
+        $resource ??= ResourceRelationshipGuesser::guessResource($name);
 
         $this->resourceClass = $resource;
         $this->resourceName = $resource::uriKey();
-        $this->hasOneThroughRelationship = $this->attribute;
+        $this->hasOneThroughRelationship = $this->attribute = $attribute ?? ResourceRelationshipGuesser::guessRelation($name);
         $this->singularLabel = $resource::singularLabel();
 
         $this->alreadyFilledWhen(function ($request) {
-            $resource = Nova::resourceForKey($request->viaResource);
+            $parentResource = Nova::resourceForKey($request->viaResource);
 
-            if ($resource && $request->viaResourceId) {
-                $parent = $resource::newModel()->find($request->viaResourceId);
+            if ($parentResource && filled($request->viaResourceId)) {
+                $parent = $parentResource::newModel()->find($request->viaResourceId);
 
-                return ! is_null($parent->{$this->attribute});
+                return model_exists($parent->{$this->attribute});
             }
 
             return false;
@@ -85,14 +105,30 @@ class HasOneThrough extends Field implements ListableField, RelatableField
     }
 
     /**
+     * Get the relationship name.
+     */
+    public function relationshipName(): string
+    {
+        return $this->hasOneThroughRelationship;
+    }
+
+    /**
+     * Get the relationship type.
+     */
+    public function relationshipType(): string
+    {
+        return 'hasOneThrough';
+    }
+
+    /**
      * Determine if the field should be displayed for the given request.
      *
-     * @param  \Illuminate\Http\Request  $request
      * @return bool
      */
+    #[\Override]
     public function authorize(Request $request)
     {
-        return call_user_func(
+        return \call_user_func(
             [$this->resourceClass, 'authorizedToViewAny'], $request
         ) && parent::authorize($request);
     }
@@ -100,13 +136,30 @@ class HasOneThrough extends Field implements ListableField, RelatableField
     /**
      * Resolve the field's value.
      *
-     * @param  mixed  $resource
-     * @param  string|null  $attribute
-     * @return void
+     * @param  \Laravel\Nova\Resource|\Illuminate\Database\Eloquent\Model  $resource
      */
-    public function resolve($resource, $attribute = null)
+    #[\Override]
+    public function resolve($resource, ?string $attribute = null): void
     {
-        //
+        $value = null;
+
+        if ($resource->relationLoaded($this->attribute)) {
+            $value = $resource->getRelation($this->attribute);
+        }
+
+        if (! $value) {
+            $value = $resource->{$this->attribute}()->withoutGlobalScopes()->getResults();
+        }
+
+        if ($value) {
+            $this->alreadyFilledWhen(static fn () => optional($value)->exists);
+
+            $this->hasOneThroughResource = new $this->resourceClass($value);
+
+            $this->hasOneThroughId = optional(ID::forResource($this->hasOneThroughResource))->value ?? $value->getKey();
+
+            $this->value = $this->hasOneThroughId;
+        }
     }
 
     /**
@@ -114,7 +167,7 @@ class HasOneThrough extends Field implements ListableField, RelatableField
      *
      * @return $this
      */
-    public function singularLabel($singularLabel)
+    public function singularLabel(Stringable|string $singularLabel)
     {
         $this->singularLabel = $singularLabel;
 
@@ -122,30 +175,46 @@ class HasOneThrough extends Field implements ListableField, RelatableField
     }
 
     /**
+     * Make current field behaves as panel.
+     */
+    public function asPanel(): Panel
+    {
+        return Panel::make($this->name, [$this])
+            ->withMeta([
+                'prefixComponent' => true,
+            ])->withComponent('relationship-panel');
+    }
+
+    /**
      * Prepare the field for JSON serialization.
      *
-     * @return array
+     * @return array<string, mixed>
      */
-    public function jsonSerialize()
+    #[\Override]
+    public function jsonSerialize(): array
     {
-        $request = app(NovaRequest::class);
-
-        return array_merge([
-            'resourceName' => $this->resourceName,
-            'hasOneThroughRelationship' => $this->hasOneThroughRelationship,
-            'listable' => true,
-            'singularLabel' => $this->singularLabel,
-            'alreadyFilled' => $this->alreadyFilled($request),
-        ], parent::jsonSerialize());
+        return with(app(NovaRequest::class), function ($request) {
+            return array_merge([
+                'resourceName' => $this->resourceName,
+                'hasOneThroughRelationship' => $this->hasOneThroughRelationship,
+                'relationId' => $this->hasOneThroughId,
+                'hasOneThroughId' => $this->hasOneThroughId,
+                'authorizedToView' => optional($this->hasOneThroughResource)->authorizedToView($request) ?? true,
+                'relationshipType' => $this->relationshipType(),
+                'relatable' => true,
+                'singularLabel' => $this->singularLabel,
+                'alreadyFilled' => $this->alreadyFilled($request),
+            ], parent::jsonSerialize());
+        });
     }
 
     /**
      * Set the Closure used to determine if the HasOne field has already been filled.
      *
-     * @param  \Closure  $callback
+     * @param  callable(\Laravel\Nova\Http\Requests\NovaRequest):bool  $callback
      * @return $this
      */
-    public function alreadyFilledWhen($callback)
+    public function alreadyFilledWhen(callable $callback)
     {
         $this->filledCallback = $callback;
 
@@ -154,12 +223,20 @@ class HasOneThrough extends Field implements ListableField, RelatableField
 
     /**
      * Determine if the HasOne field has alreaady been filled.
-     *
-     * @param  \Laravel\Nova\Http\Requests\NovaRequest  $request
-     * @return bool
      */
-    public function alreadyFilled(NovaRequest $request)
+    public function alreadyFilled(NovaRequest $request): bool
     {
-        return call_user_func($this->filledCallback, $request) ?? false;
+        /** @phpstan-ignore nullCoalesce.expr */
+        return \call_user_func($this->filledCallback, $request) ?? false;
+    }
+
+    /**
+     * Check showing on index.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model|\Laravel\Nova\Support\Fluent|object  $resource
+     */
+    public function isShownOnIndex(NovaRequest $request, $resource): bool
+    {
+        return false;
     }
 }

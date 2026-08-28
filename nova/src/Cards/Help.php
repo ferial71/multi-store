@@ -13,13 +13,10 @@ class Help extends Card
      */
     public $width = 'full';
 
-    /**
-     * Get the component name for the element.
-     *
-     * @return string
-     */
+    /** {@inheritDoc} */
+    #[\Override]
     public function component()
     {
-        return 'help';
+        return 'help-card';
     }
 }

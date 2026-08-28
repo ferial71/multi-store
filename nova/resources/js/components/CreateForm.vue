@@ -1,81 +1,111 @@
 <template>
-  <loading-view :loading="loading">
-    <custom-create-header class="mb-3" :resource-name="resourceName" />
+  <LoadingView :loading="loading">
+    <template v-if="shouldOverrideMeta && resourceInformation">
+      <Head
+        :title="
+          __('Create :resource', {
+            resource: resourceInformation.singularLabel,
+          })
+        "
+      />
+    </template>
 
     <form
+      class="space-y-8"
       v-if="panels"
       @submit="submitViaCreateResource"
       @change="onUpdateFormStatus"
+      :data-form-unique-id="formUniqueId"
       autocomplete="off"
       ref="form"
     >
-      <form-panel
-        class="mb-8"
-        v-for="panel in panelsWithFields"
-        @file-upload-started="handleFileUploadStarted"
-        @file-upload-finished="handleFileUploadFinished"
-        :shown-via-new-relation-modal="shownViaNewRelationModal"
-        :panel="panel"
-        :name="panel.name"
-        :key="panel.name"
-        :resource-name="resourceName"
-        :fields="panel.fields"
-        mode="form"
-        :validation-errors="validationErrors"
-        :via-resource="viaResource"
-        :via-resource-id="viaResourceId"
-        :via-relationship="viaRelationship"
-      />
+      <div class="space-y-4">
+        <component
+          v-for="panel in panels"
+          :key="panel.id"
+          :is="`form-${panel.component}`"
+          @field-changed="onUpdateFormStatus"
+          @file-upload-started="handleFileUploadStarted"
+          @file-upload-finished="handleFileUploadFinished"
+          :shown-via-new-relation-modal="shownViaNewRelationModal"
+          :panel="panel"
+          :name="panel.name"
+          :dusk="`${panel.attribute}-panel`"
+          :resource-name="resourceName"
+          :fields="panel.fields"
+          :form-unique-id="formUniqueId"
+          :mode="mode"
+          :validation-errors="validationErrors"
+          :via-resource="viaResource"
+          :via-resource-id="viaResourceId"
+          :via-relationship="viaRelationship"
+          :show-help-text="true"
+        />
+      </div>
 
       <!-- Create Button -->
-      <div class="flex items-center">
-        <cancel-button @click="$emit('cancelled-create')" />
+      <div
+        class="flex flex-col md:flex-row md:items-center justify-center md:justify-end space-y-2 md:space-y-0 md:space-x-3"
+      >
+        <Button
+          @click="$emit('create-cancelled')"
+          variant="ghost"
+          :label="__('Cancel')"
+          :disabled="isWorking"
+          dusk="cancel-create-button"
+        />
 
-        <progress-button
+        <Button
           v-if="shouldShowAddAnotherButton"
+          @click="submitViaCreateResourceAndAddAnother"
+          :label="__('Create & Add Another')"
+          :loading="wasSubmittedViaCreateResourceAndAddAnother"
           dusk="create-and-add-another-button"
-          class="mr-3"
-          @click.native="submitViaCreateResourceAndAddAnother"
-          :disabled="isWorking"
-          :processing="wasSubmittedViaCreateResourceAndAddAnother"
-        >
-          {{ __('Create & Add Another') }}
-        </progress-button>
+        />
 
-        <progress-button
-          dusk="create-button"
+        <Button
           type="submit"
+          dusk="create-button"
+          @click="submitViaCreateResource"
+          :label="createButtonLabel"
           :disabled="isWorking"
-          :processing="wasSubmittedViaCreateResource"
-        >
-          {{ createButtonLabel }}
-        </progress-button>
+          :loading="wasSubmittedViaCreateResource"
+        />
       </div>
     </form>
-  </loading-view>
+  </LoadingView>
 </template>
 
 <script>
 import {
-  mapProps,
-  Errors,
-  Minimum,
+  HandlesFormRequest,
+  HandlesUploads,
   InteractsWithResourceInformation,
-} from 'laravel-nova'
-import HandlesUploads from '@/mixins/HandlesUploads'
+  mapProps,
+} from '@/mixins'
+import { mapActions, mapMutations } from 'vuex'
+import { Button } from 'laravel-nova-ui'
+import filled from '@/util/filled'
+import tap from 'lodash/tap'
 
 export default {
-  mixins: [InteractsWithResourceInformation, HandlesUploads],
-
-  metaInfo() {
-    if (this.shouldOverrideMeta && this.resourceInformation) {
-      return {
-        title: this.__('Create :resource', {
-          resource: this.resourceInformation.singularLabel,
-        }),
-      }
-    }
+  components: {
+    Button,
   },
+
+  emits: [
+    'resource-created',
+    'resource-created-and-adding-another',
+    'create-cancelled',
+    'update-form-status',
+    'finished-loading',
+  ],
+
+  mixins: [
+    HandlesFormRequest,
+    HandlesUploads,
+    InteractsWithResourceInformation,
+  ],
 
   props: {
     mode: {
@@ -84,9 +114,8 @@ export default {
       validator: val => ['modal', 'form'].includes(val),
     },
 
-    updateFormStatus: {
-      type: Function,
-      default: () => {},
+    fromResourceId: {
+      default: null,
     },
 
     ...mapProps([
@@ -94,6 +123,7 @@ export default {
       'viaResource',
       'viaResourceId',
       'viaRelationship',
+      'relationshipType',
       'shouldOverrideMeta',
     ]),
   },
@@ -105,12 +135,10 @@ export default {
     submittedViaCreateResource: false,
     fields: [],
     panels: [],
-    validationErrors: new Errors(),
   }),
 
   async created() {
-    if (Nova.missingResource(this.resourceName))
-      return this.$router.push({ name: '404' })
+    if (Nova.missingResource(this.resourceName)) return Nova.visit('/404')
 
     // If this create is via a relation index, then let's grab the field
     // and use the label for that as the one we use for the title and buttons
@@ -131,13 +159,7 @@ export default {
       if (this.isHasOneRelationship && this.alreadyFilled) {
         Nova.error(this.__('The HasOne relationship has already been filled.'))
 
-        this.$router.push({
-          name: 'detail',
-          params: {
-            resourceId: this.viaResourceId,
-            resourceName: this.viaResource,
-          },
-        })
+        Nova.visit(`/resources/${this.viaResource}/${this.viaResourceId}`)
       }
 
       if (this.isHasOneThroughRelationship && this.alreadyFilled) {
@@ -145,20 +167,34 @@ export default {
           this.__('The HasOneThrough relationship has already been filled.')
         )
 
-        this.$router.push({
-          name: 'detail',
-          params: {
-            resourceId: this.viaResourceId,
-            resourceName: this.viaResource,
-          },
-        })
+        Nova.visit(`/resources/${this.viaResource}/${this.viaResourceId}`)
       }
     }
 
     this.getFields()
+
+    if (this.mode !== 'form') this.allowLeavingModal()
   },
 
   methods: {
+    ...mapMutations(['allowLeavingModal', 'preventLeavingModal']),
+    ...mapActions(['fetchPolicies']),
+
+    /**
+     * Handle resource loaded event.
+     */
+    handleResourceLoaded() {
+      this.loading = false
+
+      this.$emit('finished-loading')
+
+      Nova.$emit('resource-loaded', {
+        resourceName: this.resourceName,
+        resourceId: null,
+        mode: 'create',
+      })
+    },
+
     /**
      * Get the available fields for the resource.
      */
@@ -174,6 +210,8 @@ export default {
           params: {
             editing: true,
             editMode: 'create',
+            inline: this.shownViaNewRelationModal,
+            fromResourceId: this.fromResourceId,
             viaResource: this.viaResource,
             viaResourceId: this.viaResourceId,
             viaRelationship: this.viaRelationship,
@@ -183,17 +221,21 @@ export default {
 
       this.panels = panels
       this.fields = fields
-      this.loading = false
+
+      this.handleResourceLoaded()
     },
 
     async submitViaCreateResource(e) {
       e.preventDefault()
+      this.isWorking = true
       this.submittedViaCreateResource = true
       this.submittedViaCreateResourceAndAddAnother = false
       await this.createResource()
     },
 
-    async submitViaCreateResourceAndAddAnother() {
+    async submitViaCreateResourceAndAddAnother(e) {
+      e.preventDefault()
+      this.isWorking = true
       this.submittedViaCreateResourceAndAddAnother = true
       this.submittedViaCreateResource = false
       await this.createResource()
@@ -203,15 +245,16 @@ export default {
      * Create a new resource instance using the provided data.
      */
     async createResource() {
-      this.isWorking = true
-
       if (this.$refs.form.reportValidity()) {
         try {
           const {
             data: { redirect, id },
           } = await this.createRequest()
 
-          this.canLeave = true
+          if (this.mode !== 'form') this.allowLeavingModal()
+
+          // Reload the policies for Nova in case the user has new permissions
+          await this.fetchPolicies()
 
           Nova.success(
             this.__('The :resource was created!', {
@@ -222,9 +265,13 @@ export default {
           if (this.submittedViaCreateResource) {
             this.$emit('resource-created', { id, redirect })
           } else {
+            window.scrollTo(0, 0)
+
+            this.$emit('resource-created-and-adding-another', { id })
+
             // Reset the form by refetching the fields
             this.getFields()
-            this.validationErrors = new Errors()
+            this.resetErrors()
             this.submittedViaCreateAndAddAnother = false
             this.submittedViaCreateResource = false
             this.isWorking = false
@@ -238,21 +285,9 @@ export default {
           this.submittedViaCreateResource = true
           this.isWorking = false
 
-          if (this.resourceInformation.preventFormAbandonment) {
-            this.canLeave = false
-          }
+          if (this.mode !== 'form') this.preventLeavingModal()
 
-          if (error.response.status == 422) {
-            this.validationErrors = new Errors(error.response.data.errors)
-            Nova.error(this.__('There was a problem submitting the form.'))
-          } else {
-            Nova.error(
-              this.__('There was a problem submitting the form.') +
-                ' "' +
-                error.response.statusText +
-                '"'
-            )
-          }
+          this.handleOnCreateResponseError(error)
         }
       }
 
@@ -281,10 +316,16 @@ export default {
      * Create the form data for creating the resource.
      */
     createResourceFormData() {
-      return _.tap(new FormData(), formData => {
-        _.each(this.fields, field => {
-          field.fill(formData)
+      return tap(new FormData(), formData => {
+        this.panels.forEach(panel => {
+          panel.fields.forEach(field => {
+            field.fill(formData)
+          })
         })
+
+        if (filled(this.fromResourceId)) {
+          formData.append('fromResourceId', this.fromResourceId)
+        }
 
         formData.append('viaResource', this.viaResource)
         formData.append('viaResourceId', this.viaResourceId)
@@ -296,9 +337,7 @@ export default {
      * Prevent accidental abandonment only if form was changed.
      */
     onUpdateFormStatus() {
-      if (this.resourceInformation.preventFormAbandonment) {
-        this.updateFormStatus()
-      }
+      this.$emit('update-form-status')
     },
   },
 
@@ -309,15 +348,6 @@ export default {
 
     wasSubmittedViaCreateResourceAndAddAnother() {
       return this.isWorking && this.submittedViaCreateResourceAndAddAnother
-    },
-
-    panelsWithFields() {
-      return _.map(this.panels, panel => {
-        return {
-          ...panel,
-          fields: _.filter(this.fields, field => field.panel == panel.name),
-        }
-      })
     },
 
     singularName() {
@@ -337,11 +367,11 @@ export default {
     },
 
     shownViaNewRelationModal() {
-      return this.mode == 'modal'
+      return this.mode === 'modal'
     },
 
     inFormMode() {
-      return this.mode == 'form'
+      return this.mode === 'form'
     },
 
     canAddMoreResources() {
@@ -365,7 +395,7 @@ export default {
     shouldShowAddAnotherButton() {
       return (
         Boolean(this.inFormMode && !this.alreadyFilled) &&
-        Boolean(!this.isHasOneRelationship || !this.isHasOneThroughRelationship)
+        !Boolean(this.isHasOneRelationship || this.isHasOneThroughRelationship)
       )
     },
   },

@@ -2,27 +2,32 @@
 
 namespace Laravel\Nova\Rules;
 
+use Illuminate\Database\Eloquent\Model;
 use Laravel\Nova\Nova;
 
 class RelatableAttachment extends Relatable
 {
-    /**
-     * Authorize that the user is allowed to relate this resource.
-     *
-     * @param  string  $resource
-     * @param  \Illuminate\Database\Eloquent\Model  $model
-     * @return bool
-     */
-    protected function authorize($resource, $model)
+    /** {@inheritDoc} */
+    #[\Override]
+    protected function authorize(string $resourceClass, Model $model): bool
     {
-        $parentResource = Nova::resourceForModel(
-            $parentModel = $this->request->findModelOrFail()
+        $parentResource = rescue(
+            fn () => $this->request->findResourceOrFail(),
+            Nova::newResourceFromModel($this->request->findModelOrFail()),
+            false,
         );
 
-        return (new $parentResource($parentModel))->authorizedToAttachAny(
+        return $parentResource->authorizedToAttachAny(
             $this->request, $model
-        ) || (new $parentResource($parentModel))->authorizedToAttach(
+        ) || $parentResource->authorizedToAttach(
             $this->request, $model
         );
+    }
+
+    /** {@inheritDoc} */
+    #[\Override]
+    protected function relationshipIsFull(Model $model, string $attribute, mixed $value): bool
+    {
+        return false;
     }
 }

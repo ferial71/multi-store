@@ -2,9 +2,17 @@
 
 namespace Laravel\Nova\Fields;
 
-class Textarea extends Field
+use Laravel\Nova\Contracts\FilterableField;
+use Laravel\Nova\Exceptions\NovaException;
+use Laravel\Nova\Fields\Filters\TextFilter;
+use Laravel\Nova\Http\Requests\NovaRequest;
+
+class Textarea extends Field implements FilterableField
 {
     use Expandable;
+    use FieldFilterable;
+    use SupportsDependentFields;
+    use SupportsMaxlength;
 
     /**
      * The field's component.
@@ -30,10 +38,9 @@ class Textarea extends Field
     /**
      * Set the number of rows used for the textarea.
      *
-     * @param  int $rows
      * @return $this
      */
-    public function rows($rows)
+    public function rows(int $rows)
     {
         $this->rows = $rows;
 
@@ -43,23 +50,46 @@ class Textarea extends Field
     /**
      * Resolve the field's value for display.
      *
-     * @param  mixed  $resource
-     * @param  string|null  $attribute
-     * @return void
+     * @param  \Illuminate\Database\Eloquent\Model|\Laravel\Nova\Support\Fluent|object  $resource
      */
-    public function resolveForDisplay($resource, $attribute = null)
+    #[\Override]
+    public function resolveForDisplay($resource, ?string $attribute = null): void
     {
         parent::resolveForDisplay($resource, $attribute);
 
-        return $this->value = e($this->value);
+        $this->value = e($this->value);
+    }
+
+    /**
+     * Make the field filter.
+     *
+     * @return \Laravel\Nova\Fields\Filters\Filter
+     */
+    protected function makeFilter(NovaRequest $request)
+    {
+        return new TextFilter($this);
+    }
+
+    /**
+     * Specify that the element should be visible on the index view.
+     *
+     * @param  (callable():(bool))|bool  $callback
+     * @return never
+     *
+     * @throws \Laravel\Nova\Exceptions\HelperNotSupported
+     */
+    public function showOnIndex($callback = true)
+    {
+        throw NovaException::helperNotSupported(__METHOD__, __CLASS__);
     }
 
     /**
      * Prepare the element for JSON serialization.
      *
-     * @return array
+     * @return array<string, mixed>
      */
-    public function jsonSerialize()
+    #[\Override]
+    public function jsonSerialize(): array
     {
         return array_merge(parent::jsonSerialize(), [
             'rows' => $this->rows,

@@ -2,12 +2,17 @@
 
 namespace Laravel\Nova\Contracts;
 
+/**
+ * @mixin \Laravel\Nova\Fields\Field
+ *
+ * @property callable(\Laravel\Nova\Http\Requests\NovaRequest, mixed, ?string, ?string):mixed $deleteCallback
+ */
 interface Deletable
 {
     /**
      * Specify the callback that should be used to delete the field.
      *
-     * @param  callable  $deleteCallback
+     * @param  callable(\Laravel\Nova\Http\Requests\NovaRequest, mixed, ?string, ?string):mixed  $deleteCallback
      * @return $this
      */
     public function delete(callable $deleteCallback);
@@ -15,10 +20,9 @@ interface Deletable
     /**
      * Specify if the field is able to be deleted.
      *
-     * @param  bool  $deletable
      * @return $this
      */
-    public function deletable($deletable = true);
+    public function deletable(bool $deletable = true);
 
     /**
      * Determine if the field should be pruned when the resource is deleted.

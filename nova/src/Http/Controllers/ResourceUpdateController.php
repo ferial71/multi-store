@@ -2,59 +2,88 @@
 
 namespace Laravel\Nova\Http\Controllers;
 
+use Illuminate\Http\JsonResponse;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Laravel\Nova\Actions\ActionEvent;
+use Laravel\Nova\Exceptions\ResourceSaveCancelledException;
 use Laravel\Nova\Http\Requests\UpdateResourceRequest;
 use Laravel\Nova\Nova;
+use Laravel\Nova\URL;
+use Laravel\Nova\Util;
+use Throwable;
 
 class ResourceUpdateController extends Controller
 {
     /**
+     * The action event for the action.
+     */
+    protected ?ActionEvent $actionEvent = null;
+
+    /**
      * Create a new resource.
      *
-     * @param  \Laravel\Nova\Http\Requests\UpdateResourceRequest  $request
-     * @return \Illuminate\Http\JsonResponse
+     * @throws \Illuminate\Http\Exceptions\HttpResponseException
      */
-    public function handle(UpdateResourceRequest $request)
+    public function __invoke(UpdateResourceRequest $request): JsonResponse
     {
-        [$model, $resource] = DB::transaction(function () use ($request) {
-            $model = $request->findModelQuery()->lockForUpdate()->firstOrFail();
+        $model = $request->findModelQuery()->lockForUpdate()->firstOrFail();
 
-            $resource = $request->newResourceWith($model);
-            $resource->authorizeToUpdate($request);
-            $resource::validateForUpdate($request, $resource);
+        try {
+            [$model, $resource] = DB::connection($model->getConnectionName())->transaction(function () use ($request, $model) {
+                $resource = $request->newResourceWith($model);
+                $resource->authorizeToUpdate($request);
+                $resource::validateForUpdate($request, $resource);
 
-            if ($this->modelHasBeenUpdatedSinceRetrieval($request, $model)) {
-                return response('', 409)->throwResponse();
-            }
+                if ($this->modelHasBeenUpdatedSinceRetrieval($request, $model)) {
+                    response('', 409)->throwResponse();
+                }
 
-            [$model, $callbacks] = $resource::fillForUpdate($request, $model);
+                [$model, $callbacks] = $resource::fillForUpdate($request, $model);
 
-            Nova::actionEvent()->forResourceUpdate($request->user(), $model)->save();
+                DB::transaction(function () use ($request, $model) {
+                    Nova::usingActionEvent(function ($actionEvent) use ($request, $model) {
+                        $this->actionEvent = $actionEvent->forResourceUpdate(Nova::user($request), $model);
+                        $this->actionEvent->save();
+                    });
+                });
 
-            $model->save();
+                $resource::beforeUpdate($request, $model);
 
-            collect($callbacks)->each->__invoke();
+                if ($model->save() === false) {
+                    throw new ResourceSaveCancelledException;
+                }
 
-            return [$model, $resource];
-        });
+                collect($callbacks)->each->__invoke();
 
-        return response()->json([
-            'id' => $model->getKey(),
-            'resource' => $model->attributesToArray(),
-            'redirect' => $resource::redirectAfterUpdate($request, $resource),
-        ]);
+                $resource::afterUpdate($request, $model);
+
+                return [$model, $resource];
+            });
+
+            tap(Nova::user($request), static function ($user) use ($model) {
+                if ($model::class === Util::userModel() && $model->is($user)) {
+                    $user->refresh();
+                }
+            });
+
+            return response()->json([
+                'id' => $model->getKey(),
+                'redirect' => URL::make($resource::redirectAfterUpdate($request, $resource)),
+            ]);
+        } catch (Throwable $e) {
+            optional($this->actionEvent)->delete();
+            throw $e;
+        }
     }
 
     /**
      * Determine if the model has been updated since it was retrieved.
      *
-     * @param  \Laravel\Nova\Http\Requests\UpdateResourceRequest  $request
      * @param  \Illuminate\Database\Eloquent\Model  $model
-     * @return bool
      */
-    protected function modelHasBeenUpdatedSinceRetrieval(UpdateResourceRequest $request, $model)
+    protected function modelHasBeenUpdatedSinceRetrieval(UpdateResourceRequest $request, $model): bool
     {
         $resource = $request->newResource();
 
@@ -65,11 +94,11 @@ class ResourceUpdateController extends Controller
 
         $column = $model->getUpdatedAtColumn();
 
-        if (! $model->{$column}) {
+        if (! ($model->usesTimestamps() && $model->{$column})) {
             return false;
         }
 
-        return $request->input('_retrieved_at') && $model->usesTimestamps() && $model->{$column}->gt(
+        return $request->input('_retrieved_at') && $model->{$column}->gt(
             Carbon::createFromTimestamp($request->input('_retrieved_at'))
         );
     }

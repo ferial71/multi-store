@@ -17,16 +17,48 @@ class NovaApplicationServiceProvider extends ServiceProvider
      */
     public function boot()
     {
-        $this->routes();
-
         Nova::serving(function (ServingNova $event) {
             $this->authorization();
             $this->registerExceptionHandler();
             $this->resources();
-            Nova::cards($this->cards());
             Nova::dashboards($this->dashboards());
             Nova::tools($this->tools());
         });
+    }
+
+    /**
+     * Bootstrap authentication services.
+     *
+     * @return void
+     */
+    protected function bootAuthentication()
+    {
+        //
+    }
+
+    /**
+     * Bootstrap route services.
+     *
+     * @return void
+     */
+    protected function bootRoutes()
+    {
+        $this->routes();
+
+        if (! $this->app->routesAreCached()) {
+            Nova::routes()->bootstrap($this->app);
+        }
+    }
+
+    /**
+     * Register the Fortify configurations.
+     *
+     * @return void
+     */
+    protected function fortify()
+    {
+        Nova::fortify()
+            ->register();
     }
 
     /**
@@ -37,8 +69,10 @@ class NovaApplicationServiceProvider extends ServiceProvider
     protected function routes()
     {
         Nova::routes()
-                ->withAuthenticationRoutes()
-                ->withPasswordResetRoutes();
+            ->withAuthenticationRoutes()
+            ->withPasswordResetRoutes()
+            ->withoutEmailVerificationRoutes()
+            ->register();
     }
 
     /**
@@ -48,11 +82,9 @@ class NovaApplicationServiceProvider extends ServiceProvider
      */
     protected function authorization()
     {
-        $this->gate();
-
-        Nova::auth(function ($request) {
+        Nova::auth(static function ($request) {
             return app()->environment('local') ||
-                   Gate::check('viewNova', [$request->user()]);
+                   Gate::check('viewNova', [Nova::user($request)]);
         });
     }
 
@@ -65,21 +97,9 @@ class NovaApplicationServiceProvider extends ServiceProvider
      */
     protected function gate()
     {
-        Gate::define('viewNova', function ($user) {
-            return in_array($user->email, [
-                //
-            ]);
-        });
-    }
-
-    /**
-     * Get the cards that should be displayed on the Nova dashboard.
-     *
-     * @return array
-     */
-    protected function cards()
-    {
-        return [];
+        Gate::define('viewNova', static fn ($user) => \in_array($user->email, [
+            //
+        ]));
     }
 
     /**
@@ -109,7 +129,7 @@ class NovaApplicationServiceProvider extends ServiceProvider
      */
     protected function registerExceptionHandler()
     {
-        $this->app->bind(ExceptionHandler::class, NovaExceptionHandler::class);
+        app()->bind(ExceptionHandler::class, NovaExceptionHandler::class);
     }
 
     /**
@@ -129,6 +149,14 @@ class NovaApplicationServiceProvider extends ServiceProvider
      */
     public function register()
     {
-        //
+        $this->loadJsonTranslationsFrom(lang_path('vendor/nova'));
+
+        $this->fortify();
+
+        $this->booted(function () {
+            $this->gate();
+            $this->bootAuthentication();
+            $this->bootRoutes();
+        });
     }
 }

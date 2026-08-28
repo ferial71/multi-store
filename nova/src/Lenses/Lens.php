@@ -3,14 +3,15 @@
 namespace Laravel\Nova\Lenses;
 
 use ArrayAccess;
+use Illuminate\Contracts\Database\Eloquent\Builder;
 use Illuminate\Contracts\Routing\UrlRoutable;
-use Illuminate\Http\Request;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Resources\ConditionallyLoadsAttributes;
 use Illuminate\Http\Resources\DelegatesToResource;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Str;
 use JsonSerializable;
 use Laravel\Nova\AuthorizedToSee;
-use Laravel\Nova\Contracts\ListableField;
 use Laravel\Nova\Fields\FieldCollection;
 use Laravel\Nova\Fields\ID;
 use Laravel\Nova\Http\Requests\LensRequest;
@@ -21,19 +22,20 @@ use Laravel\Nova\ProxiesCanSeeToGate;
 use Laravel\Nova\ResolvesActions;
 use Laravel\Nova\ResolvesCards;
 use Laravel\Nova\ResolvesFilters;
+use Laravel\Nova\SupportsPolling;
 use stdClass;
 
 abstract class Lens implements ArrayAccess, JsonSerializable, UrlRoutable
 {
-    use
-        AuthorizedToSee,
-        ConditionallyLoadsAttributes,
-        DelegatesToResource,
-        Makeable,
-        ProxiesCanSeeToGate,
-        ResolvesActions,
-        ResolvesCards,
-        ResolvesFilters;
+    use AuthorizedToSee;
+    use ConditionallyLoadsAttributes;
+    use DelegatesToResource;
+    use Makeable;
+    use ProxiesCanSeeToGate;
+    use ResolvesActions;
+    use ResolvesCards;
+    use ResolvesFilters;
+    use SupportsPolling;
 
     /**
      * The displayable name of the lens.
@@ -45,36 +47,59 @@ abstract class Lens implements ArrayAccess, JsonSerializable, UrlRoutable
     /**
      * The underlying model resource instance.
      *
-     * @var \Illuminate\Database\Eloquent\Model
+     * @var \Illuminate\Database\Eloquent\Model|\stdClass
      */
     public $resource;
 
     /**
+     * The columns that should be searched.
+     *
+     * @var array
+     */
+    public static $search = [];
+
+    /**
+     * The pagination per-page options used for this lens.
+     *
+     * @var int|array<int, int>|null
+     */
+    public static $perPageOptions = null;
+
+    /**
      * Execute the query for the lens.
      *
-     * @param  \Laravel\Nova\Http\Requests\LensRequest  $request
-     * @param  \Illuminate\Database\Eloquent\Builder  $query
-     * @return mixed
+     * @return \Illuminate\Contracts\Database\Eloquent\Builder|\Illuminate\Contracts\Pagination\Paginator
      */
-    abstract public static function query(LensRequest $request, $query);
+    abstract public static function query(LensRequest $request, Builder $query);
 
     /**
      * Get the fields displayed by the lens.
      *
-     * @param  \Illuminate\Http\Request  $request
-     * @return array
+     * @return array<int, \Laravel\Nova\Fields\Field>
      */
-    abstract public function fields(Request $request);
+    abstract public function fields(NovaRequest $request);
 
     /**
      * Create a new lens instance.
      *
      * @param  \Illuminate\Database\Eloquent\Model|null  $resource
-     * @return void
      */
     public function __construct($resource = null)
     {
         $this->resource = $resource ?: new stdClass;
+    }
+
+    /**
+     * Set the resource of the lens.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model  $resource
+     * @return $this
+     */
+    public function setResource($resource)
+    {
+        $this->resource = $resource;
+
+        return $this;
     }
 
     /**
@@ -100,46 +125,47 @@ abstract class Lens implements ArrayAccess, JsonSerializable, UrlRoutable
     /**
      * Get the actions available on the lens.
      *
-     * @param  \Illuminate\Http\Request  $request
-     * @return array
+     * @return array<int, \Laravel\Nova\Actions\Action>
      */
-    public function actions(Request $request)
+    public function actions(NovaRequest $request)
     {
-        return $request->newResource()->actions($request);
-    }
-
-    /**
-     * Prepare the resource for JSON serialization.
-     *
-     * @param  \Laravel\Nova\Http\Requests\NovaRequest  $request
-     * @return array
-     */
-    public function serializeForIndex(NovaRequest $request)
-    {
-        return $this->serializeWithId($this->resolveFields($request)
-                ->reject(function ($field) {
-                    return $field instanceof ListableField || ! $field->showOnIndex;
-                }));
+        return $request->newResourceWith(
+            $this->resource instanceof Model ? $this->resource : $request->model()
+        )->actions($request);
     }
 
     /**
      * Resolve the given fields to their values.
      *
-     * @param  \Laravel\Nova\Http\Requests\NovaRequest  $request
-     * @return \Laravel\Nova\Fields\FieldCollection
+     * @return \Laravel\Nova\Fields\FieldCollection<int, \Laravel\Nova\Fields\Field>
      */
     public function resolveFields(NovaRequest $request)
     {
+        /** @phpstan-ignore return.type */
         return $this->availableFields($request)
-            ->resolve($this->resource)
+            ->filterForIndex($request, $this->resource)
+            ->withoutListableFields()
             ->authorized($request)
             ->resolveForDisplay($this->resource);
     }
 
     /**
+     * Resolve the filterable fields.
+     *
+     * @return \Laravel\Nova\Fields\FieldCollection<int, \Laravel\Nova\Fields\Field&\Laravel\Nova\Contracts\FilterableField>
+     */
+    public function filterableFields(NovaRequest $request)
+    {
+        /** @phpstan-ignore return.type */
+        return $this->availableFields($request)
+            ->flattenStackedFields()
+            ->withOnlyFilterableFields()
+            ->authorized($request);
+    }
+
+    /**
      * Get the fields that are available for the given request.
      *
-     * @param  \Laravel\Nova\Http\Requests\NovaRequest  $request
      * @return \Laravel\Nova\Fields\FieldCollection
      */
     public function availableFields(NovaRequest $request)
@@ -148,9 +174,43 @@ abstract class Lens implements ArrayAccess, JsonSerializable, UrlRoutable
     }
 
     /**
+     * Determine if this resource is searchable.
+     *
+     * @return bool
+     */
+    public static function searchable()
+    {
+        return ! empty(static::searchableColumns());
+    }
+
+    /**
+     * Get the searchable columns for the lens.
+     *
+     * @return array
+     */
+    public static function searchableColumns()
+    {
+        return static::$search;
+    }
+
+    /**
+     * The pagination per-page options configured for this lens.
+     *
+     * @return array<int, int>|null
+     */
+    public static function perPageOptions()
+    {
+        return transform(
+            static::$perPageOptions,
+            static fn ($perPageOptions) => Arr::wrap($perPageOptions),
+            null,
+        );
+    }
+
+    /**
      * Prepare the lens for JSON serialization using the given fields.
      *
-     * @param  \Laravel\Nova\Fields\FieldCollection  $fields
+     * @param  \Laravel\Nova\Fields\FieldCollection<int, \Laravel\Nova\Fields\Field>  $fields
      * @return array
      */
     protected function serializeWithId(FieldCollection $fields)
@@ -164,9 +224,9 @@ abstract class Lens implements ArrayAccess, JsonSerializable, UrlRoutable
     /**
      * Prepare the lens for JSON serialization.
      *
-     * @return array
+     * @return array<string, mixed>
      */
-    public function jsonSerialize()
+    public function jsonSerialize(): array
     {
         return [
             'name' => $this->name(),

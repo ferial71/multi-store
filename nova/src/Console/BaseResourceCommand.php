@@ -3,7 +3,9 @@
 namespace Laravel\Nova\Console;
 
 use Illuminate\Console\GeneratorCommand;
+use Symfony\Component\Console\Attribute\AsCommand;
 
+#[AsCommand(name: 'nova:base-resource', hidden: true)]
 class BaseResourceCommand extends GeneratorCommand
 {
     use ResolvesStubPath;
@@ -37,16 +39,6 @@ class BaseResourceCommand extends GeneratorCommand
     protected $type = 'Resource';
 
     /**
-     * Execute the console command.
-     *
-     * @return bool|null
-     */
-    public function handle()
-    {
-        parent::handle();
-    }
-
-    /**
      * Get the stub file for the generator.
      *
      * @return string
@@ -56,12 +48,8 @@ class BaseResourceCommand extends GeneratorCommand
         return $this->resolveStubPath('/stubs/nova/base-resource.stub');
     }
 
-    /**
-     * Get the default namespace for the class.
-     *
-     * @param  string  $rootNamespace
-     * @return string
-     */
+    /** {@inheritDoc} */
+    #[\Override]
     protected function getDefaultNamespace($rootNamespace)
     {
         return $rootNamespace.'\Nova';

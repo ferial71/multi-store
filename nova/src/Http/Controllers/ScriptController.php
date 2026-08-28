@@ -2,34 +2,26 @@
 
 namespace Laravel\Nova\Http\Controllers;
 
-use DateTime;
 use Illuminate\Routing\Controller;
-use Illuminate\Support\Arr;
 use Laravel\Nova\Http\Requests\NovaRequest;
 use Laravel\Nova\Nova;
+use Laravel\Nova\Script;
 
 class ScriptController extends Controller
 {
     /**
      * Serve the requested script.
      *
-     * @param  \Laravel\Nova\Http\Requests\NovaRequest  $request
-     * @return \Illuminate\Http\Response
-     *
      * @throws \Symfony\Component\HttpKernel\Exception\NotFoundHttpException
      */
-    public function show(NovaRequest $request)
+    public function __invoke(NovaRequest $request): Script
     {
-        $path = Arr::get(Nova::allScripts(), $request->script);
+        $asset = collect(Nova::allScripts())
+            ->filter(static fn ($asset) => $asset->name() === $request->script)
+            ->first();
 
-        abort_if(is_null($path), 404);
+        abort_if(\is_null($asset), 404);
 
-        return response(
-            file_get_contents($path),
-            200,
-            [
-                'Content-Type' => 'application/javascript',
-            ]
-        )->setLastModified(DateTime::createFromFormat('U', filemtime($path)));
+        return $asset;
     }
 }

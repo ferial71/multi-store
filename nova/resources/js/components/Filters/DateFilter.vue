@@ -1,31 +1,27 @@
 <template>
-  <div>
-    <h3 class="text-sm uppercase tracking-wide text-80 bg-30 p-3">
-      {{ filter.name }}
-    </h3>
+  <FilterContainer>
+    <span>{{ filter.name }}</span>
 
-    <div class="p-2">
-      <date-time-picker
-        class="w-full form-control form-input form-input-bordered"
-        dusk="date-filter"
-        name="date-filter"
-        autocomplete="off"
-        :value="value"
-        alt-format="Y-m-d"
-        date-format="Y-m-d"
-        :placeholder="placeholder"
-        :enable-time="false"
-        :enable-seconds="false"
-        :first-day-of-week="firstDayOfWeek"
-        @input.prevent=""
+    <template #filter>
+      <input
+        ref="dateField"
         @change="handleChange"
+        type="date"
+        name="date-filter"
+        :value="value"
+        autocomplete="off"
+        class="w-full h-8 flex form-control form-input form-control-bordered text-xs"
+        :placeholder="placeholder"
+        :dusk="filter.uniqueKey"
       />
-    </div>
-  </div>
+    </template>
+  </FilterContainer>
 </template>
 
 <script>
 export default {
+  emits: ['change'],
+
   props: {
     resourceName: {
       type: String,
@@ -39,11 +35,14 @@ export default {
   },
 
   methods: {
-    handleChange(value) {
+    handleChange(e) {
+      let value = e.target.value
+
       this.$store.commit(`${this.resourceName}/updateFilterState`, {
         filterClass: this.filterKey,
         value,
       })
+
       this.$emit('change')
     },
   },
@@ -53,24 +52,20 @@ export default {
       return this.filter.placeholder || this.__('Choose date')
     },
 
-    value() {
-      return this.filter.currentValue
-    },
-
     filter() {
       return this.$store.getters[`${this.resourceName}/getFilter`](
         this.filterKey
       )
     },
 
+    value() {
+      return this.filter.currentValue
+    },
+
     options() {
       return this.$store.getters[`${this.resourceName}/getOptionsForFilter`](
         this.filterKey
       )
-    },
-
-    firstDayOfWeek() {
-      return this.filter.firstDayOfWeek || 0
     },
   },
 }

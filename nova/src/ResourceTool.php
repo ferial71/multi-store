@@ -2,11 +2,15 @@
 
 namespace Laravel\Nova;
 
-use Closure;
 use Illuminate\Support\Str;
 
+/**
+ * @method static static make()
+ */
+#[\AllowDynamicProperties]
 class ResourceTool extends Panel
 {
+    use Makeable;
     use ProxiesCanSeeToGate;
 
     /**
@@ -19,14 +23,12 @@ class ResourceTool extends Panel
     /**
      * The resource tool's component.
      *
-     * @var string
+     * @var string|null
      */
     public $toolComponent;
 
     /**
      * Create a new resource tool instance.
-     *
-     * @return void
      */
     public function __construct()
     {
@@ -36,23 +38,13 @@ class ResourceTool extends Panel
     }
 
     /**
-     * Create a new resource tool instance.
-     *
-     * @return static
-     */
-    public static function make(...$arguments)
-    {
-        return new static(...$arguments);
-    }
-
-    /**
      * Get the displayable name of the resource tool.
      *
-     * @return string
+     * @return \Stringable|string
      */
     public function name()
     {
-        return $this->name ?: Str::title(Str::snake(class_basename(get_class($this)), ' '));
+        return $this->name ?: Nova::humanize($this::class);
     }
 
     /**
@@ -62,30 +54,27 @@ class ResourceTool extends Panel
      */
     public function toolComponent()
     {
-        return $this->toolComponent ?? Str::kebab(class_basename(get_class($this)));
+        return $this->toolComponent ?? Str::kebab(class_basename($this::class));
     }
 
     /**
      * Set the callback to be run to authorize viewing the card.
      *
-     * @param  \Closure  $callback
+     * @param  callable(\Illuminate\Http\Request):bool  $callback
      * @return $this
      */
-    public function canSee(Closure $callback)
+    public function canSee(callable $callback)
     {
         $this->element->canSee($callback);
 
         return $this;
     }
 
-    /**
-     * Set additional meta information for the resource tool.
-     *
-     * @param  array  $meta
-     * @return $this
-     */
+    /** {@inheritDoc} */
+    #[\Override]
     public function withMeta(array $meta)
     {
+        parent::withMeta($meta);
         $this->element->withMeta($meta);
 
         return $this;

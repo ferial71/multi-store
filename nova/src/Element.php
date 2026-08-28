@@ -3,14 +3,20 @@
 namespace Laravel\Nova;
 
 use Illuminate\Http\Request;
+use Illuminate\Support\Traits\Macroable;
 use JsonSerializable;
 
+/**
+ * @method static static make(string|null $component = null)
+ */
 abstract class Element implements JsonSerializable
 {
-    use Metable;
     use AuthorizedToSee;
-    use ProxiesCanSeeToGate;
+    use Macroable;
     use Makeable;
+    use Metable;
+    use ProxiesCanSeeToGate;
+    use WithComponent;
 
     /**
      * The element's component.
@@ -28,11 +34,8 @@ abstract class Element implements JsonSerializable
 
     /**
      * Create a new element.
-     *
-     * @param  string|null  $component
-     * @return void
      */
-    public function __construct($component = null)
+    public function __construct(?string $component = null)
     {
         $this->component = $component ?? $this->component;
     }
@@ -40,22 +43,11 @@ abstract class Element implements JsonSerializable
     /**
      * Determine if the element should be displayed for the given request.
      *
-     * @param  \Illuminate\Http\Request  $request
      * @return bool
      */
     public function authorize(Request $request)
     {
         return $this->authorizedToSee($request);
-    }
-
-    /**
-     * Get the component name for the element.
-     *
-     * @return string
-     */
-    public function component()
-    {
-        return $this->component;
     }
 
     /**
@@ -73,9 +65,9 @@ abstract class Element implements JsonSerializable
     /**
      * Prepare the element for JSON serialization.
      *
-     * @return array
+     * @return array<string, mixed>
      */
-    public function jsonSerialize()
+    public function jsonSerialize(): array
     {
         return array_merge([
             'component' => $this->component(),

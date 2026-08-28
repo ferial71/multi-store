@@ -3,8 +3,10 @@
 namespace Laravel\Nova\Console;
 
 use Illuminate\Console\GeneratorCommand;
+use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Input\InputOption;
 
+#[AsCommand(name: 'nova:filter')]
 class FilterCommand extends GeneratorCommand
 {
     use ResolvesStubPath;
@@ -46,24 +48,18 @@ class FilterCommand extends GeneratorCommand
         return $this->resolveStubPath('/stubs/nova/filter.stub');
     }
 
-    /**
-     * Get the default namespace for the class.
-     *
-     * @param  string  $rootNamespace
-     * @return string
-     */
+    /** {@inheritDoc} */
+    #[\Override]
     protected function getDefaultNamespace($rootNamespace)
     {
         return $rootNamespace.'\Nova\Filters';
     }
 
-    /**
-     * Get the console command options.
-     *
-     * @return array
-     */
+    /** {@inheritDoc} */
+    #[\Override]
     protected function getOptions()
     {
+        /** @phpstan-ignore return.type */
         return [
             ['boolean', null, InputOption::VALUE_NONE, 'Indicates if the generated filter should be a boolean filter'],
             ['date', null, InputOption::VALUE_NONE, 'Indicates if the generated filter should be a date filter'],

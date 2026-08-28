@@ -2,21 +2,33 @@
 
 namespace Laravel\Nova\Fields;
 
-use Closure;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Http\Request;
-use Illuminate\Support\Str;
+use Laravel\Nova\Contracts\FilterableField;
 use Laravel\Nova\Contracts\RelatableField;
+use Laravel\Nova\Fields\Filters\MorphToFilter;
 use Laravel\Nova\Http\Requests\NovaRequest;
 use Laravel\Nova\Http\Requests\ResourceIndexRequest;
 use Laravel\Nova\Nova;
 use Laravel\Nova\Resource;
 use Laravel\Nova\Rules\Relatable;
-use Laravel\Nova\TrashedStatus;
 
-class MorphTo extends Field implements RelatableField
+use function Orchestra\Sidekick\Http\safe_int;
+use function Orchestra\Sidekick\is_safe_callable;
+
+/**
+ * @method static static make(\Stringable|string $name, string|null $attribute = null)
+ */
+class MorphTo extends Field implements FilterableField, RelatableField
 {
-    use ResolvesReverseRelation, DeterminesIfCreateRelationCanBeShown, Searchable;
+    use AssociatableRelation;
+    use DeterminesIfCreateRelationCanBeShown;
+    use EloquentFilterable;
+    use Peekable;
+    use ResolvesReverseRelation;
+    use Searchable;
+    use SupportsDependentFields;
+    use SupportsWithTrashedRelatables;
 
     /**
      * The field's component.
@@ -28,19 +40,26 @@ class MorphTo extends Field implements RelatableField
     /**
      * The class name of the related resource.
      *
-     * @var string
+     * @var class-string<\Laravel\Nova\Resource>|null
      */
-    public $resourceClass;
+    public $resourceClass = null;
 
     /**
      * The URI key of the related resource.
      *
-     * @var string
+     * @var string|null
      */
-    public $resourceName;
+    public $resourceName = null;
 
     /**
-     * The name of the Eloquent "morph to to" relationship.
+     * The resolved MorphTo Resource.
+     *
+     * @var \Laravel\Nova\Resource|null
+     */
+    public $morphToResource = null;
+
+    /**
+     * The name of the Eloquent "morph to" relationship.
      *
      * @var string
      */
@@ -49,103 +68,102 @@ class MorphTo extends Field implements RelatableField
     /**
      * The key of the related Eloquent model.
      *
-     * @var string
+     * @var string|int|null
      */
-    public $morphToId;
+    public $morphToId = null;
 
     /**
      * The type of the related Eloquent model.
      *
-     * @var string
+     * @var string|null
      */
-    public $morphToType;
+    public $morphToType = null;
 
     /**
      * The types of resources that may be polymorphically related to this resource.
      *
-     * @var array
+     * @var array<array-key, array<string, mixed>>
      */
     public $morphToTypes = [];
 
     /**
      * The column that should be displayed for the field.
      *
-     * @var \Closure|array
+     * @var callable|array<class-string<\Laravel\Nova\Resource>, callable>|string
      */
     public $display;
 
     /**
      * Indicates if the related resource can be viewed.
      *
-     * @var bool
+     * @var bool|null
      */
-    public $viewable = true;
+    public $viewable = null;
 
     /**
      * The attribute that is the inverse of this relationship.
      *
-     * @var string
+     * @var string|null
      */
-    public $inverse;
-
-    /**
-     * Indicates whether the field should display the "With Trashed" option.
-     *
-     * @var bool
-     */
-    public $displaysWithTrashed = true;
+    public $inverse = null;
 
     /**
      * The default related class value for the field.
      *
-     * @var Closure|string
+     * @var (callable(\Laravel\Nova\Http\Requests\NovaRequest):(class-string<\Laravel\Nova\Resource>))|class-string<\Laravel\Nova\Resource>|null
      */
     public $defaultResourceCallable;
 
     /**
      * Create a new field.
      *
-     * @param  string  $name
-     * @param  string|null  $attribute
-     * @return void
+     * @param  \Stringable|string  $name
      */
-    public function __construct($name, $attribute = null)
+    public function __construct($name, ?string $attribute = null)
     {
         parent::__construct($name, $attribute);
 
-        $this->morphToRelationship = $this->attribute;
+        $this->morphToRelationship = $this->attribute = $attribute ?? ResourceRelationshipGuesser::guessRelation($name);
+    }
+
+    /**
+     * Get the relationship name.
+     */
+    public function relationshipName(): string
+    {
+        return $this->morphToRelationship;
+    }
+
+    /**
+     * Get the relationship type.
+     */
+    public function relationshipType(): string
+    {
+        return 'morphTo';
     }
 
     /**
      * Determine if the field should be displayed for the given request.
      *
-     * @param  \Illuminate\Http\Request  $request
+     * @param  \Illuminate\Http\Request&\Laravel\Nova\Http\Requests\NovaRequest  $request
      * @return bool
      */
+    #[\Override]
     public function authorize(Request $request)
     {
         if (! $this->isNotRedundant($request)) {
             return false;
         }
 
-        if (! $this->resourceClass) {
-            return true && parent::authorize($request);
-        }
-
-        return call_user_func(
-            [$this->resourceClass, 'authorizedToViewAny'], $request
-        ) && parent::authorize($request);
+        return parent::authorize($request);
     }
 
     /**
      * Determine if the field is not redundant.
      *
      * See: Explanation on belongsTo field.
-     *
-     * @param  \Illuminate\Http\Request  $request
-     * @return bool
      */
-    public function isNotRedundant(Request $request)
+    public function isNotRedundant(NovaRequest $request): bool
     {
         return ! $request instanceof ResourceIndexRequest || ! $this->isReverseRelation($request);
     }
@@ -153,11 +171,10 @@ class MorphTo extends Field implements RelatableField
     /**
      * Resolve the field's value.
      *
-     * @param  mixed  $resource
-     * @param  string|null  $attribute
-     * @return void
+     * @param  \Laravel\Nova\Resource|\Illuminate\Database\Eloquent\Model|object  $resource
      */
-    public function resolve($resource, $attribute = null)
+    #[\Override]
+    public function resolve($resource, ?string $attribute = null): void
     {
         $value = null;
 
@@ -179,39 +196,57 @@ class MorphTo extends Field implements RelatableField
         }
 
         if ($value) {
-            $resource = new $this->resourceClass($value);
+            if (! \is_string($this->resourceClass)) {
+                $this->morphToType = $value->getMorphClass();
+                $this->value = (string) $value->getKey();
 
-            $this->value = $this->formatDisplayValue(
-                $value, Nova::resourceForModel($value)
-            );
+                if ($this->value != $value->getKey()) {
+                    $this->morphToId = (string) $this->morphToId;
+                }
 
-            $this->viewable = $this->viewable
-                && $resource->authorizedToView(request());
+                $this->viewable = false;
+            } else {
+                $this->morphToResource = new $this->resourceClass($value);
+
+                $this->morphToId = safe_int($this->morphToId);
+
+                $resource = Nova::newResourceFromModel($value);
+
+                $this->value = $this->formatDisplayValue($resource, $resource::class);
+
+                $this->viewable = ($this->viewable ?? true) && $this->morphToResource->authorizedToView(app(NovaRequest::class));
+            }
         }
     }
 
     /**
      * Resolve the field's value for display.
      *
-     * @param  mixed  $resource
-     * @param  string|null  $attribute
-     * @return void
+     * @param  \Laravel\Nova\Resource|\Illuminate\Database\Eloquent\Model|object  $resource
      */
-    public function resolveForDisplay($resource, $attribute = null)
+    #[\Override]
+    public function resolveForDisplay($resource, ?string $attribute = null): void
     {
         $this->resolve($resource, $attribute);
     }
 
     /**
+     * Resolve dependent field value.
+     */
+    public function resolveDependentValue(NovaRequest $request): mixed
+    {
+        return $this->morphToId ?? $this->resolveDefaultValue($request);
+    }
+
+    /**
      * Resolve the current resource key for the resource's morph type.
      *
-     * @param  mixed  $resource
-     * @return string|null
+     * @param  \Laravel\Nova\Resource|\Illuminate\Database\Eloquent\Model  $resource
      */
-    protected function resolveMorphType($resource)
+    protected function resolveMorphType($resource): ?string
     {
         if (! $type = optional($resource->{$this->attribute}())->getMorphType()) {
-            return;
+            return null;
         }
 
         $value = $resource->{$type};
@@ -219,26 +254,24 @@ class MorphTo extends Field implements RelatableField
         if ($morphResource = Nova::resourceForModel(Relation::getMorphedModel($value) ?? $value)) {
             return $morphResource::uriKey();
         }
+
+        return null;
     }
 
     /**
      * Resolve the resource class for the field.
      *
-     * @param  \Illuminate\Database\Eloquent\Model
-     * @return string|null
+     * @param  \Illuminate\Database\Eloquent\Model  $model
      */
-    protected function resolveResourceClass($model)
+    protected function resolveResourceClass($model): ?string
     {
         return $this->resourceClass = Nova::resourceForModel($model);
     }
 
     /**
      * Get the validation rules for this field.
-     *
-     * @param  \Laravel\Nova\Http\Requests\NovaRequest  $request
-     * @return array
      */
-    public function getRules(NovaRequest $request)
+    public function getRules(NovaRequest $request): array
     {
         $possibleTypes = collect($this->morphToTypes)->map->value->values();
 
@@ -250,53 +283,72 @@ class MorphTo extends Field implements RelatableField
 
     /**
      * Get the validation rule to verify that the selected model is relatable.
-     *
-     * @param  \Laravel\Nova\Http\Requests\NovaRequest  $request
-     * @return \Laravel\Nova\Rules\Relatable|null
      */
-    protected function getRelatableRule(NovaRequest $request)
+    protected function getRelatableRule(NovaRequest $request): ?Relatable
     {
         if ($relatedResource = Nova::resourceForKey($request->{$this->attribute.'_type'})) {
-            return new Relatable($request, $this->buildMorphableQuery(
+            return new Relatable($request, $this->buildAssociatableQuery(
                 $request, $relatedResource, $request->{$this->attribute.'_trashed'} === 'true'
-            ));
+            )->toBase(), $this);
+        }
+
+        return null;
+    }
+
+    /**
+     * Hydrate the given attribute on the model based on the incoming request.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model|\Laravel\Nova\Support\Fluent  $model
+     * @return void
+     */
+    #[\Override]
+    public function fill(NovaRequest $request, object $model)
+    {
+        $instance = Nova::modelInstanceForKey($request->{$this->attribute.'_type'});
+
+        $relationship = $model->{$this->attribute}();
+
+        $morphType = $relationship->getMorphType();
+
+        $model->setAttribute(
+            $morphType,
+            ! \is_null($instance) ? $this->getMorphAliasForClass($instance::class) : null
+        );
+
+        $foreignKey = $this->getRelationForeignKeyName($relationship);
+
+        parent::fillInto($request, $model, $foreignKey);
+
+        if (\is_null($model->getAttribute($morphType))) {
+            $model->setAttribute($foreignKey, null);
+        }
+
+        if ($model->isDirty([$morphType, $foreignKey])) {
+            $model->unsetRelation($this->attribute);
         }
     }
 
     /**
      * Hydrate the given attribute on the model based on the incoming request.
      *
-     * @param  \Laravel\Nova\Http\Requests\NovaRequest  $request
-     * @param  object  $model
-     * @return void
+     * @param  \Illuminate\Database\Eloquent\Model|\Laravel\Nova\Support\Fluent  $model
      */
-    public function fill(NovaRequest $request, $model)
+    #[\Override]
+    public function fillForAction(NovaRequest $request, object $model): void
     {
-        $instance = Nova::modelInstanceForKey($request->{$this->attribute.'_type'});
+        if ($request->exists($this->attribute)) {
+            $value = $request[$this->attribute];
 
-        $morphType = $model->{$this->attribute}()->getMorphType();
-        if ($instance) {
-            $model->{$morphType} = $this->getMorphAliasForClass(
-                get_class($instance)
-            );
+            $instance = Nova::modelInstanceForKey($request->{$this->attribute.'_type'});
+
+            $model->{$this->attribute} = $instance->query()->find($value);
         }
-
-        $foreignKey = $this->getRelationForeignKeyName($model->{$this->attribute}());
-
-        if ($model->isDirty([$morphType, $foreignKey])) {
-            $model->unsetRelation($this->attribute);
-        }
-
-        parent::fillInto($request, $model, $foreignKey);
     }
 
     /**
      * Get the morph type alias for the given class.
-     *
-     * @param  string  $class
-     * @return string
      */
-    protected function getMorphAliasForClass($class)
+    protected function getMorphAliasForClass(string $class): string
     {
         foreach (Relation::$morphMap as $alias => $model) {
             if ($model == $class) {
@@ -308,115 +360,54 @@ class MorphTo extends Field implements RelatableField
     }
 
     /**
-     * Build an morphable query for the field.
-     *
-     * @param  \Laravel\Nova\Http\Requests\NovaRequest  $request
-     * @param  string  $relatedResource
-     * @param  bool  $withTrashed
-     * @return \Illuminate\Database\Eloquent\Builder
-     */
-    public function buildMorphableQuery(NovaRequest $request, $relatedResource, $withTrashed = false)
-    {
-        $model = $relatedResource::newModel();
-
-        $query = $request->first === 'true'
-                        ? $model->newQueryWithoutScopes()->whereKey($request->current)
-                        : $relatedResource::buildIndexQuery(
-                                $request, $model->newQuery(), $request->search,
-                                [], [], TrashedStatus::fromBoolean($withTrashed)
-                          );
-
-        return $query->tap(function ($query) use ($request, $relatedResource, $model) {
-            forward_static_call(
-                $this->morphableQueryCallable($request, $relatedResource, $model),
-                $request, $query
-            );
-        });
-    }
-
-    /**
-     * Get the morphable query method name.
-     *
-     * @param  \Laravel\Nova\Http\Requests\NovaRequest  $request
-     * @param  string  $relatedResource
-     * @param  \Illuminate\Database\Eloquent\Model  $model
-     * @return array
-     */
-    protected function morphableQueryCallable(NovaRequest $request, $relatedResource, $model)
-    {
-        return ($method = $this->morphableQueryMethod($request, $model))
-                    ? [$request->resource(), $method]
-                    : [$relatedResource, 'relatableQuery'];
-    }
-
-    /**
-     * Get the morphable query method name.
-     *
-     * @param  \Laravel\Nova\Http\Requests\NovaRequest  $request
-     * @param  \Illuminate\Database\Eloquent\Model  $model
-     * @return string
-     */
-    protected function morphableQueryMethod(NovaRequest $request, $model)
-    {
-        $method = 'relatable'.Str::plural(class_basename($model));
-
-        return method_exists($request->resource(), $method) ? $method : null;
-    }
-
-    /**
      * Format the given morphable resource.
      *
-     * @param  \Laravel\Nova\Http\Requests\NovaRequest  $request
-     * @param  mixed  $resource
-     * @param  string  $relatedResource
-     * @return array
+     * @param  \Laravel\Nova\Resource|\Illuminate\Database\Eloquent\Model  $resource
+     * @param  class-string<\Laravel\Nova\Resource>  $relatedResource
      */
-    public function formatMorphableResource(NovaRequest $request, $resource, $relatedResource)
+    public function formatMorphableResource(NovaRequest $request, object $resource, string $relatedResource): array
     {
+        if (! $resource instanceof Resource) {
+            $resource = Nova::newResourceFromModel($resource);
+        }
+
         return array_filter([
             'avatar' => $resource->resolveAvatarUrl($request),
             'display' => $this->formatDisplayValue($resource, $relatedResource),
             'subtitle' => $resource->subtitle(),
-            'value' => $resource->getKey(),
+            'value' => safe_int($resource->getKey()),
         ]);
     }
 
     /**
      * Format the associatable display value.
      *
-     * @param  mixed  $resource
-     * @param  string  $relatedResource
-     * @return string
+     * @param  class-string<\Laravel\Nova\Resource>  $relatedResource
      */
-    protected function formatDisplayValue($resource, $relatedResource)
+    protected function formatDisplayValue(Resource $resource, string $relatedResource): string
     {
-        if (! $resource instanceof Resource) {
-            $resource = Nova::newResourceFromModel($resource);
-        }
-
         if ($display = $this->displayFor($relatedResource)) {
-            return call_user_func($display, $resource);
+            return \call_user_func($display, $resource);
         }
 
-        return $resource->title();
+        return (string) $resource->title();
     }
 
     /**
      * Set the types of resources that may be related to the resource.
      *
-     * @param  array  $types
+     * @param  array<int, class-string<\Laravel\Nova\Resource>>|array<class-string<\Laravel\Nova\Resource>, string>  $types
      * @return $this
      */
     public function types(array $types)
     {
-        $this->morphToTypes = collect($types)->map(function ($display, $key) {
-            return [
+        $this->morphToTypes = collect($types)
+            ->map(static fn ($display, $key) => [ // @phpstan-ignore argument.unresolvableType
                 'type' => is_numeric($key) ? $display : $key,
                 'singularLabel' => is_numeric($key) ? $display::singularLabel() : $key::singularLabel(),
-                'display' => (is_string($display) && is_numeric($key)) ? $display::singularLabel() : $display,
+                'display' => (\is_string($display) && is_numeric($key)) ? $display::singularLabel() : $display,
                 'value' => is_numeric($key) ? $display::uriKey() : $key::uriKey(),
-            ];
-        })->values()->all();
+            ])->values()->all();
 
         return $this;
     }
@@ -424,46 +415,40 @@ class MorphTo extends Field implements RelatableField
     /**
      * Set the column that should be displayed for the field.
      *
-     * @param  \Closure|array|string  $display
+     * @param  callable|array<class-string<\Laravel\Nova\Resource>, callable>|string  $display
      * @return $this
      */
     public function display($display)
     {
-        if (is_array($display)) {
-            $this->display = collect($display)->mapWithKeys(function ($display, $type) {
-                return [$type => $this->ensureDisplayerIsClosure($display)];
-            })->all();
+        if (\is_array($display)) {
+            $this->display = collect($display)->mapWithKeys(
+                fn ($display, $type) => [$type => $this->ensureDisplayerIsCallable($display)]
+            )->all();
         } else {
-            $this->display = $this->ensureDisplayerIsClosure($display);
+            $this->display = $this->ensureDisplayerIsCallable($display);
         }
 
         return $this;
     }
 
     /**
-     * Ensure the given displayer is a Closure.
+     * Ensure the given displayer is a callable.
      *
-     * @param  \Closure|string  $display
-     * @return \Closure
+     * @param  callable|string  $display
      */
-    protected function ensureDisplayerIsClosure($display)
+    protected function ensureDisplayerIsCallable($display): callable
     {
-        return $display instanceof Closure
-                    ? $display
-                    : function ($resource) use ($display) {
-                        return $resource->{$display};
-                    };
+        return is_safe_callable($display)
+            ? $display
+            : fn ($resource) => $resource->{$display};
     }
 
     /**
      * Get the column that should be displayed for a given type.
-     *
-     * @param  string  $type
-     * @return \Closure|null
      */
-    public function displayFor($type)
+    public function displayFor(string $type): ?callable
     {
-        if (is_array($this->display) && $type) {
+        if (\is_array($this->display) && $type) {
             return $this->display[$type] ?? null;
         }
 
@@ -497,21 +482,9 @@ class MorphTo extends Field implements RelatableField
     }
 
     /**
-     * hides the "With Trashed" option.
-     *
-     * @return $this
-     */
-    public function withoutTrashed()
-    {
-        $this->displaysWithTrashed = false;
-
-        return $this;
-    }
-
-    /**
      * Set the default relation resource class to be selected.
      *
-     * @param \Closure|string $resourceClass
+     * @param  (callable(\Laravel\Nova\Http\Requests\NovaRequest):(class-string<\Laravel\Nova\Resource>))|class-string<\Laravel\Nova\Resource>  $resourceClass
      * @return $this
      */
     public function defaultResource($resourceClass)
@@ -524,48 +497,107 @@ class MorphTo extends Field implements RelatableField
     /**
      * Resolve the default resource class for the field.
      *
-     * @param  \Laravel\Nova\Http\Requests\NovaRequest  $request
      * @return string|void
      */
     protected function resolveDefaultResource(NovaRequest $request)
     {
         if ($request->isCreateOrAttachRequest() || $request->isResourceIndexRequest() || $request->isActionRequest()) {
-            if (is_null($this->value) && $this->defaultResourceCallable instanceof Closure) {
-                $class = call_user_func($this->defaultResourceCallable, $request);
+            if (\is_null($this->value) && is_safe_callable($this->defaultResourceCallable)) {
+                $class = \call_user_func($this->defaultResourceCallable, $request);
             } else {
                 $class = $this->defaultResourceCallable;
             }
 
-            if (class_exists($class)) {
+            if (! empty($class) && class_exists($class)) {
                 return $class::uriKey();
             }
         }
     }
 
     /**
+     * Make the field filter.
+     *
+     * @return \Laravel\Nova\Fields\Filters\Filter|null
+     */
+    protected function makeFilter(NovaRequest $request)
+    {
+        return new MorphToFilter($this);
+    }
+
+    /**
+     * Define filterable attribute.
+     *
+     * @return string
+     */
+    protected function filterableAttribute(NovaRequest $request)
+    {
+        return $this->morphToRelationship;
+    }
+
+    /**
+     * Define the default filterable callback.
+     *
+     * @return callable(\Laravel\Nova\Http\Requests\NovaRequest, \Illuminate\Contracts\Database\Eloquent\Builder, mixed, string):void
+     */
+    protected function defaultFilterableCallback()
+    {
+        $morphToTypes = collect($this->morphToTypes)
+                            ->pluck('type')
+                            ->mapWithKeys(static fn ($type) => [$type => $type::newModel()->getMorphClass()])
+                            ->all();
+
+        return function (NovaRequest $request, $query, $value, $attribute) use ($morphToTypes) {
+            $query->whereHasMorph(
+                $attribute,
+                ! empty($value) && isset($morphToTypes[$value]) ? $morphToTypes[$value] : $morphToTypes
+            );
+        };
+    }
+
+    /**
+     * Prepare the field for JSON serialization.
+     */
+    public function serializeForFilter(): array
+    {
+        return transform($this->jsonSerialize(), static fn ($field) => [
+            'resourceName' => $field['resourceName'],
+            'morphToTypes' => $field['morphToTypes'],
+            'uniqueKey' => $field['uniqueKey'],
+            'relationshipType' => $field['relationshipType'],
+        ]);
+    }
+
+    /**
      * Prepare the field for JSON serialization.
      *
-     * @return array
+     * @return array<string, mixed>
      */
-    public function jsonSerialize()
+    public function jsonSerialize(): array
     {
         $resourceClass = $this->resourceClass;
 
         return with(app(NovaRequest::class), function ($request) use ($resourceClass) {
+            $viewable = ! \is_null($this->viewable)
+                    ? $this->viewable
+                    : (! \is_null($resourceClass) ? $resourceClass::authorizedToViewAny($request) : true);
+
             return array_merge([
                 'debounce' => $this->debounce,
-                'morphToId' => $this->morphToId,
                 'morphToRelationship' => $this->morphToRelationship,
+                'relationshipType' => $this->relationshipType(),
                 'morphToType' => $this->morphToType,
+                'morphToId' => $this->morphToId,
                 'morphToTypes' => $this->morphToTypes,
+                'peekable' => $this->isPeekable($request),
+                'hasFieldsToPeekAt' => $this->hasFieldsToPeekAt($request),
                 'resourceLabel' => $resourceClass ? $resourceClass::singularLabel() : null,
                 'resourceName' => $this->resourceName,
                 'reverse' => $this->isReverseRelation($request),
-                'searchable' => $this->searchable,
+                'searchable' => $this->isSearchable($request),
                 'withSubtitles' => $this->withSubtitles,
                 'showCreateRelationButton' => $this->createRelationShouldBeShown($request),
                 'displaysWithTrashed' => $this->displaysWithTrashed,
-                'viewable' => $this->viewable,
+                'viewable' => $viewable,
                 'defaultResource' => $this->resolveDefaultResource($request),
             ], parent::jsonSerialize());
         });

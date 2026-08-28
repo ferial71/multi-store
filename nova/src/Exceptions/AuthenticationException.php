@@ -3,7 +3,9 @@
 namespace Laravel\Nova\Exceptions;
 
 use Illuminate\Auth\AuthenticationException as BaseAuthenticationException;
-use Illuminate\Support\Facades\Route;
+use Inertia\Inertia;
+use Laravel\Nova\Nova;
+use Laravel\Nova\URL;
 
 class AuthenticationException extends BaseAuthenticationException
 {
@@ -11,28 +13,56 @@ class AuthenticationException extends BaseAuthenticationException
      * Render the exception.
      *
      * @param  \Illuminate\Http\Request  $request
-     * @return \Illuminate\Http\Response
+     * @return mixed
      */
     public function render($request)
     {
-        return $request->expectsJson()
-                    ? response()->json(['message' => $this->getMessage()], 401)
-                    : redirect()->guest($this->location());
+        if ($request->expectsJson()) {
+            return response()->json([
+                'message' => $this->getMessage(),
+                'redirect' => $this->location(),
+            ], 401);
+        } elseif ($request->is('nova-api/*') || $request->is('nova-vendor/*')) {
+            return response(null, 401);
+        }
+
+        if ($request->inertia() || Nova::routes()->loginPath !== false) {
+            return $this->redirectForInertia($request);
+        }
+
+        return redirect()->guest($this->location());
     }
 
     /**
      * Determine the location the user should be redirected to.
-     *
-     * @return string
      */
-    protected function location()
+    protected function location(): URL|string
     {
-        if (Route::getRoutes()->hasNamedRoute('nova.login')) {
-            return route('nova.login');
-        } elseif (Route::getRoutes()->hasNamedRoute('login')) {
-            return route('login');
-        }
+        $loginPath = Nova::routes()->loginPath;
 
-        return '/login';
+        return $loginPath !== false ? $loginPath : Nova::url('login');
+    }
+
+    /**
+     * Redirect request for Inertia.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @return \Symfony\Component\HttpFoundation\Response
+     */
+    protected function redirectForInertia($request)
+    {
+        tap(redirect(), static function ($redirect) use ($request) {
+            $url = $redirect->getUrlGenerator();
+
+            $intended = $request->method() === 'GET' && $request->route() && ! $request->expectsJson()
+                    ? $url->full()
+                    : $url->previous();
+
+            if ($intended) {
+                $redirect->setIntendedUrl($intended);
+            }
+        });
+
+        return Inertia::location($this->location());
     }
 }

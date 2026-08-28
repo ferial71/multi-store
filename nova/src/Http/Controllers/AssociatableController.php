@@ -10,28 +10,39 @@ class AssociatableController extends Controller
 {
     /**
      * List the available related resources for a given resource.
-     *
-     * @param  \Laravel\Nova\Http\Requests\NovaRequest  $request
-     * @return \Illuminate\Http\Response
      */
-    public function index(NovaRequest $request)
+    public function __invoke(NovaRequest $request): array
     {
         $field = $request->newResource()
-                    ->availableFields($request)
-                    ->whereInstanceOf(RelatableField::class)
-                    ->findFieldByAttribute($request->field);
+            ->availableFieldsOnIndexOrDetail($request)
+            ->whereInstanceOf(RelatableField::class)
+            ->findFieldByAttributeOrFail($request->field)
+            ->applyDependsOn($request);
 
         $withTrashed = $this->shouldIncludeTrashed(
             $request, $associatedResource = $field->resourceClass
         );
 
+        $limit = $associatedResource::usesScout()
+            ? $associatedResource::$scoutSearchResults
+            : $associatedResource::$relatableSearchResults;
+
+        $shouldReorderAssociatableValues = $field->shouldReorderAssociatableValues($request) && ! $associatedResource::usesScout();
+
+        $query = method_exists($field, 'searchAssociatableQuery')
+            ? $field->searchAssociatableQuery($request, $associatedResource, $withTrashed)
+            : $field->buildAssociatableQuery($request, $associatedResource, $withTrashed);
+
         return [
-            'resources' => $field->buildAssociatableQuery($request, $withTrashed)->get()
-                        ->mapInto($field->resourceClass)
-                        ->filter->authorizedToAdd($request, $request->model())
-                        ->map(function ($resource) use ($request, $field) {
-                            return $field->formatAssociatableResource($request, $resource);
-                        })->sortBy('display')->values(),
+            'resources' => $query->take($limit)
+                ->get()
+                ->mapInto($associatedResource)
+                ->when(
+                    $request->isCreateOrAttachRequest() || $request->isUpdateOrUpdateAttachedRequest(),
+                    static fn ($resources) => $resources->filter->authorizedToAdd($request, $request->model())
+                )->map(static fn ($resource) => $field->formatAssociatableResource($request, $resource))
+                ->when($shouldReorderAssociatableValues, static fn ($collection) => $collection->sortBy('display'))
+                ->values(),
             'softDeletes' => $associatedResource::softDeletes(),
             'withTrashed' => $withTrashed,
         ];
@@ -40,11 +51,9 @@ class AssociatableController extends Controller
     /**
      * Determine if the query should include trashed models.
      *
-     * @param  \Laravel\Nova\Http\Requests\NovaRequest  $request
-     * @param  string  $associatedResource
-     * @return bool
+     * @param  class-string<\Laravel\Nova\Resource>  $associatedResource
      */
-    protected function shouldIncludeTrashed(NovaRequest $request, $associatedResource)
+    protected function shouldIncludeTrashed(NovaRequest $request, string $associatedResource): bool
     {
         if ($request->withTrashed === 'true') {
             return true;
@@ -55,6 +64,7 @@ class AssociatableController extends Controller
         if ($request->current && empty($request->search) && $associatedResource::softDeletes()) {
             $associatedModel = $associatedModel->newQueryWithoutScopes()->find($request->current);
 
+            /** @phpstan-ignore method.notFound */
             return $associatedModel ? $associatedModel->trashed() : false;
         }
 
