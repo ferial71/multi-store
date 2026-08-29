@@ -32,7 +32,7 @@
                                     <a href="#" class="font-medium text-gray-500 hover:text-gray-900">Features</a>
 
                                     <a href="#" class="font-medium text-gray-500 hover:text-gray-900">Marketplace</a>
-                                        <Link v-if="$page.props.user" href="/dashboard" class="font-medium text-indigo-600 hover:text-indigo-500">
+                                        <Link v-if="$page.props.auth.user" href="/dashboard" class="font-medium text-indigo-600 hover:text-indigo-500">
                                             Dashboard
                                         </Link>
 
@@ -87,7 +87,7 @@
 
                                     </div>
                                     <div role="none">
-                                        <Link v-if="$page.props.user" href="/dashboard" class="block w-full px-5 py-3 text-center font-medium text-indigo-600 bg-gray-50 hover:bg-gray-100" role="menuitem">
+                                        <Link v-if="$page.props.auth.user" href="/dashboard" class="block w-full px-5 py-3 text-center font-medium text-indigo-600 bg-gray-50 hover:bg-gray-100" role="menuitem">
                                             Dashboard
                                         </Link>
 

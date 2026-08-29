@@ -26,7 +26,7 @@ use Inertia\Inertia;
 
 
 });
-Route::middleware('tenant')->get('/dashboard', function () {
+Route::middleware(['tenant', 'auth:sanctum', 'verified'])->get('/dashboard', function () {
     return Inertia::render('Dashboard');
 })->name('dashboard');
 Route::get('/', function () {
