@@ -5,13 +5,8 @@
 
 <script>
     export default {
-        model: {
-            prop: "checked",
-            event: "change",
-        },
-
         props: {
-            checked: {
+            modelValue: {
                 type: [Array, Boolean],
                 default: false,
             },
@@ -20,13 +15,15 @@
             },
         },
 
+        emits: ['update:modelValue'],
+
         computed: {
             proxyChecked: {
                 get() {
-                    return this.checked;
+                    return this.modelValue;
                 },
                 set(val) {
-                    this.$emit("change", val);
+                    this.$emit('update:modelValue', val);
                 },
             },
         },

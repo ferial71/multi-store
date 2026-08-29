@@ -10,9 +10,9 @@
                         <div class="flex">
                             <!-- Logo -->
                             <div class="flex-shrink-0 flex items-center">
-                                <inertia-link :href="route('dashboard')">
+                                <Link :href="route('dashboard')">
                                     <jet-application-mark class="block h-20 w-20" />
-                                </inertia-link>
+                                </Link>
                             </div>
 
                             <!-- Navigation Links -->
@@ -67,8 +67,8 @@
                                                     Switch Teams
                                                 </div>
 
-                                                <template v-for="team in $page.props.user.all_teams">
-                                                    <form @submit.prevent="switchToTeam(team)" :key="team.id">
+                                                <template v-for="team in $page.props.user.all_teams" :key="team.id">
+                                                    <form @submit.prevent="switchToTeam(team)">
                                                         <jet-dropdown-link as="button">
                                                             <div class="flex items-center">
                                                                 <svg v-if="team.id == $page.props.user.current_team_id" class="mr-2 h-5 w-5 text-green-400" fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
@@ -210,8 +210,8 @@
                                     Switch Teams
                                 </div>
 
-                                <template v-for="team in $page.props.user.all_teams">
-                                    <form @submit.prevent="switchToTeam(team)" :key="team.id">
+                                <template v-for="team in $page.props.user.all_teams" :key="team.id">
+                                    <form @submit.prevent="switchToTeam(team)">
                                         <jet-responsive-nav-link as="button">
                                             <div class="flex items-center">
                                                 <svg v-if="team.id == $page.props.user.current_team_id" class="mr-2 h-5 w-5 text-green-400" fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
@@ -239,13 +239,13 @@
             </main>
 
             <!-- Modal Portal -->
-            <portal-target name="modal" multiple>
-            </portal-target>
+            <div id="modal-target"></div>
         </div>
     </div>
 </template>
 
 <script>
+    import { Link } from '@inertiajs/vue3'
     import JetApplicationMark from '@/Jetstream/ApplicationMark'
     import JetBanner from '@/Jetstream/Banner'
     import JetDropdown from '@/Jetstream/Dropdown'
@@ -255,6 +255,7 @@
 
     export default {
         components: {
+            Link,
             JetApplicationMark,
             JetBanner,
             JetDropdown,

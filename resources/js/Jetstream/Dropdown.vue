@@ -49,17 +49,17 @@
         },
 
         created() {
-            const closeOnEscape = (e) => {
+            this.closeOnEscape = (e) => {
                 if (this.open && e.keyCode === 27) {
                     this.open = false
                 }
             }
 
-            this.$once('hook:destroyed', () => {
-                document.removeEventListener('keydown', closeOnEscape)
-            })
+            document.addEventListener('keydown', this.closeOnEscape)
+        },
 
-            document.addEventListener('keydown', closeOnEscape)
+        unmounted() {
+            document.removeEventListener('keydown', this.closeOnEscape)
         },
 
         computed: {

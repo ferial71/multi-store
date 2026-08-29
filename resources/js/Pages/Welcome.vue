@@ -32,18 +32,18 @@
                                     <a href="#" class="font-medium text-gray-500 hover:text-gray-900">Features</a>
 
                                     <a href="#" class="font-medium text-gray-500 hover:text-gray-900">Marketplace</a>
-                                        <inertia-link v-if="$page.props.user" href="/dashboard" class="font-medium text-indigo-600 hover:text-indigo-500">
+                                        <Link v-if="$page.props.user" href="/dashboard" class="font-medium text-indigo-600 hover:text-indigo-500">
                                             Dashboard
-                                        </inertia-link>
+                                        </Link>
 
                                         <template v-else>
-                                            <inertia-link :href="route('login')" class="font-medium text-indigo-600 hover:text-indigo-500">
+                                            <Link :href="route('login')" class="font-medium text-indigo-600 hover:text-indigo-500">
                                                 Login
-                                            </inertia-link>
+                                            </Link>
 
-                                            <inertia-link v-if="canRegister" :href="route('register')" class="font-medium text-indigo-600 hover:text-indigo-500">
+                                            <Link v-if="canRegister" :href="route('register')" class="font-medium text-indigo-600 hover:text-indigo-500">
                                                 Register
-                                            </inertia-link>
+                                            </Link>
                                         </template>
                                 </div>
                             </nav>
@@ -87,18 +87,18 @@
 
                                     </div>
                                     <div role="none">
-                                        <inertia-link v-if="$page.props.user" href="/dashboard" class="block w-full px-5 py-3 text-center font-medium text-indigo-600 bg-gray-50 hover:bg-gray-100" role="menuitem">
+                                        <Link v-if="$page.props.user" href="/dashboard" class="block w-full px-5 py-3 text-center font-medium text-indigo-600 bg-gray-50 hover:bg-gray-100" role="menuitem">
                                             Dashboard
-                                        </inertia-link>
+                                        </Link>
 
                                         <template v-else>
-                                            <inertia-link :href="route('login')" class="block w-full px-5 py-3 text-center font-medium text-indigo-600 bg-gray-50 hover:bg-gray-100" role="menuitem">
+                                            <Link :href="route('login')" class="block w-full px-5 py-3 text-center font-medium text-indigo-600 bg-gray-50 hover:bg-gray-100" role="menuitem">
                                                 Login
-                                            </inertia-link>
+                                            </Link>
 
-                                            <inertia-link v-if="canRegister" :href="route('register')" class="block w-full px-5 py-3 text-center font-medium text-indigo-600 bg-gray-50 hover:bg-gray-100">
+                                            <Link v-if="canRegister" :href="route('register')" class="block w-full px-5 py-3 text-center font-medium text-indigo-600 bg-gray-50 hover:bg-gray-100">
                                                 Register
-                                            </inertia-link>
+                                            </Link>
                                         </template>
                                     </div>
                                 </div>
@@ -298,9 +298,11 @@
 </style>
 
 <script>
+    import { Link } from '@inertiajs/vue3'
     import Footer from '../components/Footer';
     export default {
         components: {
+            Link,
             Footer,
         },
         props: {

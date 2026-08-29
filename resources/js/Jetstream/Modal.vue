@@ -1,5 +1,5 @@
 <template>
-    <portal to="modal">
+    <Teleport to="#modal-target">
         <transition leave-active-class="duration-200">
             <div v-show="show" class="fixed inset-0 overflow-y-auto px-4 py-6 sm:px-0">
                 <transition enter-active-class="ease-out duration-300"
@@ -25,7 +25,7 @@
                 </transition>
             </div>
         </transition>
-    </portal>
+    </Teleport>
 </template>
 
 <script>
@@ -64,17 +64,17 @@
         },
 
         created() {
-            const closeOnEscape = (e) => {
+            this.closeOnEscape = (e) => {
                 if (e.key === 'Escape' && this.show) {
                     this.close()
                 }
             }
 
-            document.addEventListener('keydown', closeOnEscape)
+            document.addEventListener('keydown', this.closeOnEscape)
+        },
 
-            this.$once('hook:destroyed', () => {
-                document.removeEventListener('keydown', closeOnEscape)
-            })
+        unmounted() {
+            document.removeEventListener('keydown', this.closeOnEscape)
         },
 
         computed: {
